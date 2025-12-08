@@ -25,50 +25,91 @@ async def get_ui():
         }
         
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', system-ui, sans-serif;
+            background: #f5f5f7;
             min-height: 100vh;
             display: flex;
             justify-content: center;
             align-items: center;
-            padding: 20px;
+            padding: 24px;
         }
         
         .container {
-            background: white;
-            border-radius: 20px;
-            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            background: rgba(255, 255, 255, 0.8);
+            backdrop-filter: blur(20px) saturate(180%);
+            -webkit-backdrop-filter: blur(20px) saturate(180%);
+            border-radius: 24px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08), 0 1px 0 rgba(255, 255, 255, 0.5) inset;
             width: 100%;
-            max-width: 800px;
-            height: 90vh;
+            max-width: 840px;
+            height: 92vh;
             display: flex;
             flex-direction: column;
             overflow: hidden;
+            border: 0.5px solid rgba(0, 0, 0, 0.08);
         }
         
         .header {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            padding: 20px 30px;
-            text-align: center;
+            background: rgba(255, 255, 255, 0.6);
+            backdrop-filter: blur(20px) saturate(180%);
+            -webkit-backdrop-filter: blur(20px) saturate(180%);
+            padding: 20px 28px;
+            border-bottom: 0.5px solid rgba(0, 0, 0, 0.06);
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
         
         .header h1 {
-            font-size: 28px;
-            font-weight: 600;
+            font-size: 20px;
+            font-weight: 590;
+            color: #1d1d1f;
+            letter-spacing: -0.3px;
         }
         
         .chat-container {
             flex: 1;
             overflow-y: auto;
-            padding: 20px;
-            background: #f8f9fa;
+            padding: 24px 28px;
+            background: transparent;
+            scroll-behavior: smooth;
+        }
+        
+        .chat-container::-webkit-scrollbar {
+            width: 8px;
+        }
+        
+        .chat-container::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        
+        .chat-container::-webkit-scrollbar-thumb {
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 4px;
+        }
+        
+        .chat-container::-webkit-scrollbar-thumb:hover {
+            background: rgba(0, 0, 0, 0.3);
         }
         
         .message {
-            margin-bottom: 15px;
+            margin-bottom: 12px;
             display: flex;
             flex-direction: column;
+            animation: fadeInUp 0.3s ease-out;
+            opacity: 0;
+            animation-fill-mode: forwards;
+        }
+        
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translateY(8px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
         }
         
         .message.user {
@@ -80,75 +121,106 @@ async def get_ui():
         }
         
         .message-bubble {
-            max-width: 70%;
-            padding: 12px 18px;
-            border-radius: 18px;
+            max-width: 75%;
+            padding: 10px 16px;
+            border-radius: 20px;
             word-wrap: break-word;
             line-height: 1.5;
+            font-size: 15px;
+            letter-spacing: -0.1px;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
         }
         
         .message.user .message-bubble {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
+            background: #e8e8ed;
+            color: #1d1d1f;
+            border-bottom-right-radius: 4px;
         }
         
         .message.assistant .message-bubble {
-            background: white;
-            color: #333;
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+            background: #ffffff;
+            color: #1d1d1f;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06), 0 2px 8px rgba(0, 0, 0, 0.04);
+            border-bottom-left-radius: 4px;
         }
         
         .input-container {
-            padding: 20px;
-            background: white;
-            border-top: 1px solid #e0e0e0;
+            padding: 16px 20px 20px;
+            background: rgba(255, 255, 255, 0.6);
+            backdrop-filter: blur(20px) saturate(180%);
+            -webkit-backdrop-filter: blur(20px) saturate(180%);
+            border-top: 0.5px solid rgba(0, 0, 0, 0.06);
             display: flex;
-            gap: 10px;
+            gap: 12px;
+            align-items: center;
         }
         
         #messageInput {
             flex: 1;
-            padding: 12px 18px;
-            border: 2px solid #e0e0e0;
-            border-radius: 25px;
-            font-size: 16px;
+            padding: 10px 18px;
+            border: 0.5px solid rgba(0, 0, 0, 0.1);
+            border-radius: 20px;
+            font-size: 15px;
+            font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', system-ui, sans-serif;
+            background: rgba(255, 255, 255, 0.8);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
             outline: none;
-            transition: border-color 0.3s;
+            transition: all 0.2s ease;
+            color: #1d1d1f;
+            letter-spacing: -0.1px;
         }
         
         #messageInput:focus {
-            border-color: #667eea;
+            border-color: rgba(0, 0, 0, 0.2);
+            background: rgba(255, 255, 255, 0.95);
+            box-shadow: 0 0 0 4px rgba(0, 0, 0, 0.04);
+        }
+        
+        #messageInput::placeholder {
+            color: #86868b;
         }
         
         #sendButton {
-            padding: 12px 30px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
+            padding: 10px 24px;
+            background: #1d1d1f;
+            color: #ffffff;
             border: none;
-            border-radius: 25px;
-            font-size: 16px;
-            font-weight: 600;
+            border-radius: 20px;
+            font-size: 15px;
+            font-weight: 590;
+            font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', system-ui, sans-serif;
             cursor: pointer;
-            transition: transform 0.2s, box-shadow 0.2s;
+            transition: all 0.2s ease;
+            letter-spacing: -0.1px;
+            min-width: 64px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
         
         #sendButton:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+            background: #2d2d2f;
+            transform: scale(1.02);
         }
         
         #sendButton:active {
-            transform: translateY(0);
+            transform: scale(0.98);
+        }
+        
+        #sendButton:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
         }
         
         .loading {
             display: inline-block;
-            width: 20px;
-            height: 20px;
-            border: 3px solid rgba(255, 255, 255, 0.3);
+            width: 16px;
+            height: 16px;
+            border: 2px solid rgba(255, 255, 255, 0.3);
             border-radius: 50%;
-            border-top-color: white;
-            animation: spin 1s ease-in-out infinite;
+            border-top-color: #ffffff;
+            animation: spin 0.8s linear infinite;
         }
         
         @keyframes spin {
@@ -156,32 +228,45 @@ async def get_ui():
         }
         
         .meeting-options {
-            margin-top: 10px;
+            margin-top: 12px;
             display: flex;
             flex-direction: column;
-            gap: 10px;
+            gap: 8px;
         }
         
         .meeting-option {
-            padding: 12px 18px;
-            background: #f0f0f0;
-            border-radius: 10px;
+            padding: 12px 16px;
+            background: rgba(255, 255, 255, 0.6);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            border-radius: 12px;
             cursor: pointer;
-            transition: background 0.2s;
+            transition: all 0.2s ease;
+            border: 0.5px solid rgba(0, 0, 0, 0.06);
         }
         
         .meeting-option:hover {
-            background: #e0e0e0;
+            background: rgba(255, 255, 255, 0.8);
+            transform: translateY(-1px);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+        }
+        
+        .meeting-option:active {
+            transform: translateY(0);
         }
         
         .meeting-option-title {
-            font-weight: 600;
-            margin-bottom: 5px;
+            font-weight: 590;
+            margin-bottom: 4px;
+            color: #1d1d1f;
+            font-size: 15px;
+            letter-spacing: -0.1px;
         }
         
         .meeting-option-date {
-            font-size: 14px;
-            color: #666;
+            font-size: 13px;
+            color: #86868b;
+            letter-spacing: -0.05px;
         }
         
         /* Structured Summary Styling */
@@ -190,57 +275,66 @@ async def get_ui():
         }
         
         .summary-header {
-            font-size: 24px;
-            font-weight: 700;
-            color: #667eea;
+            font-size: 22px;
+            font-weight: 600;
+            color: #1d1d1f;
             margin-bottom: 20px;
-            padding-bottom: 10px;
-            border-bottom: 2px solid #667eea;
+            padding-bottom: 12px;
+            border-bottom: 0.5px solid rgba(0, 0, 0, 0.1);
+            letter-spacing: -0.4px;
         }
         
         .summary-section {
-            margin-bottom: 25px;
+            margin-bottom: 24px;
+            animation: fadeIn 0.4s ease-out;
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
         }
         
         .summary-section-title {
-            font-size: 18px;
-            font-weight: 600;
-            color: #333;
+            font-size: 16px;
+            font-weight: 590;
+            color: #1d1d1f;
             margin-bottom: 10px;
-            padding: 8px 12px;
-            background: #f0f4ff;
-            border-left: 4px solid #667eea;
-            border-radius: 4px;
+            padding: 8px 0;
+            letter-spacing: -0.2px;
         }
         
         .summary-section-content {
-            padding: 0 12px;
-            line-height: 1.7;
-            color: #555;
+            padding: 0;
+            line-height: 1.6;
+            color: #424245;
+            font-size: 15px;
+            letter-spacing: -0.1px;
         }
         
         .summary-section-content ul,
         .summary-section-content ol {
-            margin: 10px 0;
-            padding-left: 25px;
+            margin: 12px 0;
+            padding-left: 24px;
         }
         
         .summary-section-content li {
-            margin: 8px 0;
+            margin: 6px 0;
         }
         
         .summary-section-content h3 {
-            font-size: 16px;
-            font-weight: 600;
-            color: #444;
-            margin: 15px 0 8px 0;
+            font-size: 15px;
+            font-weight: 590;
+            color: #1d1d1f;
+            margin: 16px 0 8px 0;
+            letter-spacing: -0.2px;
         }
         
         .summary-section-content h4 {
             font-size: 14px;
-            font-weight: 600;
-            color: #555;
+            font-weight: 590;
+            color: #424245;
             margin: 12px 0 6px 0;
+            letter-spacing: -0.15px;
         }
         
         .summary-section-content p {
@@ -248,20 +342,23 @@ async def get_ui():
         }
         
         .action-items-group {
-            margin: 15px 0;
-            padding: 12px;
-            background: #f8f9fa;
-            border-radius: 6px;
+            margin: 16px 0;
+            padding: 14px 16px;
+            background: rgba(0, 0, 0, 0.02);
+            border-radius: 12px;
+            border: 0.5px solid rgba(0, 0, 0, 0.06);
         }
         
         .action-items-group h4 {
-            color: #667eea;
+            color: #1d1d1f;
             margin-bottom: 10px;
+            font-weight: 590;
+            letter-spacing: -0.2px;
         }
         
         .action-item {
             padding: 8px 0;
-            border-bottom: 1px solid #e0e0e0;
+            border-bottom: 0.5px solid rgba(0, 0, 0, 0.06);
         }
         
         .action-item:last-child {
@@ -271,31 +368,34 @@ async def get_ui():
         .participants-list {
             display: flex;
             flex-wrap: wrap;
-            gap: 8px;
+            gap: 6px;
         }
         
         .participant-tag {
             padding: 4px 12px;
-            background: #e8f0fe;
-            color: #1967d2;
+            background: rgba(0, 0, 0, 0.05);
+            color: #424245;
             border-radius: 12px;
-            font-size: 14px;
+            font-size: 13px;
+            letter-spacing: -0.05px;
+            border: 0.5px solid rgba(0, 0, 0, 0.06);
         }
         
         .date-info {
-            color: #666;
-            font-size: 14px;
-            margin: 5px 0;
+            color: #86868b;
+            font-size: 13px;
+            margin: 6px 0;
+            letter-spacing: -0.05px;
         }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header">
-            <h1>🤖 Meeting Assistant</h1>
+            <h1>Meeting Assistant</h1>
         </div>
         <div class="chat-container" id="chatContainer">
-            <div class="message assistant">
+            <div class="message assistant" style="animation-delay: 0.1s;">
                 <div class="message-bubble">
                     Hello! I'm your Meeting Assistant. I can help you prepare for meetings, summarize past meetings, and generate follow-up emails. How can I help you today?
                 </div>
@@ -481,6 +581,10 @@ async def get_ui():
             const messageDiv = document.createElement('div');
             messageDiv.className = `message ${isUser ? 'user' : 'assistant'}`;
             
+            // Add animation delay for smooth sequential appearance
+            const messageCount = chatContainer.children.length;
+            messageDiv.style.animationDelay = `${messageCount * 0.05}s`;
+            
             const bubble = document.createElement('div');
             bubble.className = 'message-bubble';
             
@@ -506,9 +610,10 @@ async def get_ui():
                 meetingOptions.forEach((option, index) => {
                     const optionDiv = document.createElement('div');
                     optionDiv.className = 'meeting-option';
+                    optionDiv.style.animationDelay = `${(messageCount + index) * 0.05}s`;
                     optionDiv.innerHTML = `
-                        <div class="meeting-option-title">${option.title}</div>
-                        <div class="meeting-option-date">${option.date}</div>
+                        <div class="meeting-option-title">${escapeHtml(option.title)}</div>
+                        <div class="meeting-option-date">${escapeHtml(option.date)}</div>
                     `;
                     optionDiv.onclick = () => selectMeeting(option, index + 1);
                     optionsDiv.appendChild(optionDiv);
@@ -518,7 +623,14 @@ async def get_ui():
             }
             
             chatContainer.appendChild(messageDiv);
-            chatContainer.scrollTop = chatContainer.scrollHeight;
+            
+            // Smooth scroll with slight delay for animation
+            setTimeout(() => {
+                chatContainer.scrollTo({
+                    top: chatContainer.scrollHeight,
+                    behavior: 'smooth'
+                });
+            }, 100);
         }
         
         async function selectMeeting(option, number) {
