@@ -3,12 +3,13 @@
 from fastapi import APIRouter
 from fastapi.responses import HTMLResponse
 
+
 router = APIRouter(tags=["ui"])
 
 
 @router.get("/", response_class=HTMLResponse)
 async def get_ui():
-    """Serve the main chat UI."""
+    """Serve the main UI page."""
     html_content = """
 <!DOCTYPE html>
 <html lang="en">
@@ -26,19 +27,20 @@ async def get_ui():
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            height: 100vh;
+            min-height: 100vh;
             display: flex;
             justify-content: center;
             align-items: center;
+            padding: 20px;
         }
         
         .container {
-            width: 90%;
-            max-width: 800px;
-            height: 90vh;
             background: white;
             border-radius: 20px;
             box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            width: 100%;
+            max-width: 800px;
+            height: 90vh;
             display: flex;
             flex-direction: column;
             overflow: hidden;
@@ -47,20 +49,20 @@ async def get_ui():
         .header {
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
-            padding: 20px;
+            padding: 20px 30px;
             text-align: center;
         }
         
         .header h1 {
-            font-size: 24px;
+            font-size: 28px;
             font-weight: 600;
         }
         
-        .chat-area {
+        .chat-container {
             flex: 1;
             overflow-y: auto;
             padding: 20px;
-            background: #f5f5f5;
+            background: #f8f9fa;
         }
         
         .message {
@@ -79,23 +81,24 @@ async def get_ui():
         
         .message-bubble {
             max-width: 70%;
-            padding: 12px 16px;
+            padding: 12px 18px;
             border-radius: 18px;
             word-wrap: break-word;
+            line-height: 1.5;
         }
         
         .message.user .message-bubble {
-            background: #667eea;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
         }
         
         .message.assistant .message-bubble {
             background: white;
             color: #333;
-            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
         }
         
-        .input-area {
+        .input-container {
             padding: 20px;
             background: white;
             border-top: 1px solid #e0e0e0;
@@ -105,10 +108,10 @@ async def get_ui():
         
         #messageInput {
             flex: 1;
-            padding: 12px 16px;
+            padding: 12px 18px;
             border: 2px solid #e0e0e0;
             border-radius: 25px;
-            font-size: 14px;
+            font-size: 16px;
             outline: none;
             transition: border-color 0.3s;
         }
@@ -118,12 +121,12 @@ async def get_ui():
         }
         
         #sendButton {
-            padding: 12px 24px;
+            padding: 12px 30px;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             color: white;
             border: none;
             border-radius: 25px;
-            font-size: 14px;
+            font-size: 16px;
             font-weight: 600;
             cursor: pointer;
             transition: transform 0.2s, box-shadow 0.2s;
@@ -136,12 +139,6 @@ async def get_ui():
         
         #sendButton:active {
             transform: translateY(0);
-        }
-        
-        #sendButton:disabled {
-            opacity: 0.5;
-            cursor: not-allowed;
-            transform: none;
         }
         
         .loading {
@@ -158,15 +155,33 @@ async def get_ui():
             to { transform: rotate(360deg); }
         }
         
-        .empty-state {
-            text-align: center;
-            color: #999;
-            padding: 40px 20px;
+        .meeting-options {
+            margin-top: 10px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
         }
         
-        .empty-state h2 {
-            margin-bottom: 10px;
-            color: #667eea;
+        .meeting-option {
+            padding: 12px 18px;
+            background: #f0f0f0;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        
+        .meeting-option:hover {
+            background: #e0e0e0;
+        }
+        
+        .meeting-option-title {
+            font-weight: 600;
+            margin-bottom: 5px;
+        }
+        
+        .meeting-option-date {
+            font-size: 14px;
+            color: #666;
         }
     </style>
 </head>
@@ -174,40 +189,26 @@ async def get_ui():
     <div class="container">
         <div class="header">
             <h1>🤖 Meeting Assistant</h1>
-            <p style="font-size: 14px; opacity: 0.9; margin-top: 5px;">Your AI-powered meeting preparation and follow-up assistant</p>
         </div>
-        
-        <div class="chat-area" id="chatArea">
-            <div class="empty-state">
-                <h2>Welcome!</h2>
-                <p>Ask me to prepare for a meeting, summarize a past meeting, or generate a follow-up email.</p>
-                <p style="margin-top: 10px; font-size: 12px;">Try: "Prepare me for my meeting with Acme Corp tomorrow"</p>
+        <div class="chat-container" id="chatContainer">
+            <div class="message assistant">
+                <div class="message-bubble">
+                    Hello! I'm your Meeting Assistant. I can help you prepare for meetings, summarize past meetings, and generate follow-up emails. How can I help you today?
+                </div>
             </div>
         </div>
-        
-        <div class="input-area">
-            <input 
-                type="text" 
-                id="messageInput" 
-                placeholder="Type your message here..."
-                onkeypress="if(event.key === 'Enter') sendMessage()"
-            />
-            <button id="sendButton" onclick="sendMessage()">Send</button>
+        <div class="input-container">
+            <input type="text" id="messageInput" placeholder="Type your message here...">
+            <button id="sendButton">Send</button>
         </div>
     </div>
     
     <script>
-        const chatArea = document.getElementById('chatArea');
+        const chatContainer = document.getElementById('chatContainer');
         const messageInput = document.getElementById('messageInput');
         const sendButton = document.getElementById('sendButton');
         
-        function addMessage(text, isUser) {
-            // Remove empty state if present
-            const emptyState = chatArea.querySelector('.empty-state');
-            if (emptyState) {
-                emptyState.remove();
-            }
-            
+        function addMessage(text, isUser = false, meetingOptions = null) {
             const messageDiv = document.createElement('div');
             messageDiv.className = `message ${isUser ? 'user' : 'assistant'}`;
             
@@ -216,57 +217,85 @@ async def get_ui():
             bubble.textContent = text;
             
             messageDiv.appendChild(bubble);
-            chatArea.appendChild(messageDiv);
-            chatArea.scrollTop = chatArea.scrollHeight;
+            
+            if (meetingOptions && meetingOptions.length > 0) {
+                const optionsDiv = document.createElement('div');
+                optionsDiv.className = 'meeting-options';
+                
+                // Show all meeting options (not just 3)
+                meetingOptions.forEach((option, index) => {
+                    const optionDiv = document.createElement('div');
+                    optionDiv.className = 'meeting-option';
+                    optionDiv.innerHTML = `
+                        <div class="meeting-option-title">${option.title}</div>
+                        <div class="meeting-option-date">${option.date}</div>
+                    `;
+                    optionDiv.onclick = () => selectMeeting(option, index + 1);
+                    optionsDiv.appendChild(optionDiv);
+                });
+                
+                messageDiv.appendChild(optionsDiv);
+            }
+            
+            chatContainer.appendChild(messageDiv);
+            chatContainer.scrollTop = chatContainer.scrollHeight;
         }
         
-        async function sendMessage() {
+        async function selectMeeting(option, number) {
+            // When user selects a meeting, send the selection with calendar_event_id
+            const message = `Summarize meeting ${number}: ${option.title}`;
+            messageInput.value = message;
+            
+            // Send the selection with calendar_event_id
+            await sendMessage(option.calendar_event_id || null, option.meeting_id || null);
+        }
+        
+        async function sendMessage(selectedCalendarEventId = null, selectedMeetingId = null) {
             const message = messageInput.value.trim();
             if (!message) return;
             
-            // Add user message to chat
             addMessage(message, true);
             messageInput.value = '';
             
-            // Disable input
-            messageInput.disabled = true;
             sendButton.disabled = true;
             sendButton.innerHTML = '<div class="loading"></div>';
             
             try {
+                const requestBody = {
+                    message: message,
+                    selected_meeting_id: selectedMeetingId,
+                    selected_calendar_event_id: selectedCalendarEventId
+                };
+                
                 const response = await fetch('/api/chat', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                     },
-                    body: JSON.stringify({
-                        message: message,
-                        user_id: null,
-                        client_id: null
-                    })
+                    body: JSON.stringify(requestBody)
                 });
                 
-                if (!response.ok) {
-                    throw new Error('Failed to get response');
-                }
-                
                 const data = await response.json();
-                addMessage(data.response, false);
                 
+                if (data.meeting_options && data.meeting_options.length > 0) {
+                    addMessage(data.response, false, data.meeting_options);
+                } else {
+                    addMessage(data.response, false);
+                }
             } catch (error) {
-                addMessage('Sorry, I encountered an error. Please try again.', false);
-                console.error('Error:', error);
+                addMessage('I encountered an error: ' + error.message + '. Please try again or provide more context.', false);
             } finally {
-                // Re-enable input
-                messageInput.disabled = false;
                 sendButton.disabled = false;
-                sendButton.textContent = 'Send';
-                messageInput.focus();
+                sendButton.innerHTML = 'Send';
             }
         }
         
-        // Focus input on load
-        messageInput.focus();
+        sendButton.addEventListener('click', sendMessage);
+        messageInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                sendMessage();
+            }
+        });
     </script>
 </body>
 </html>

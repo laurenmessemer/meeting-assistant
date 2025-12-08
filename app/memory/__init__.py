@@ -1,2 +1,2 @@
-"""Memory management (database models and repository)."""
+"""Memory and database repository modules."""
 

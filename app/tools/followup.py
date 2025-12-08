@@ -2,135 +2,82 @@
 
 from typing import Dict, Any, Optional
 from app.llm.gemini_client import GeminiClient
-from app.llm.prompts import FOLLOWUP_TOOL_PROMPT
 from app.memory.repo import MemoryRepository
-from app.integrations.gmail_client import GmailClient
+from app.integrations.zoom_client import ZoomClient
 
 
 class FollowUpTool:
     """Tool for generating follow-up emails."""
     
-    def __init__(
-        self, 
-        llm_client: GeminiClient, 
-        memory_repo: MemoryRepository
-    ):
+    def __init__(self, llm_client: GeminiClient, memory_repo: MemoryRepository):
         self.llm = llm_client
         self.memory = memory_repo
-        self.gmail = GmailClient()
     
-    def generate_followup_email(
+    async def generate_followup(
         self,
-        meeting_id: Optional[int] = None,
-        client_id: Optional[int] = None,
-        user_id: Optional[int] = None,
-        additional_context: Optional[str] = None
+        meeting_id: int = None,
+        client_id: int = None,
+        zoom_meeting_id: Optional[str] = None
     ) -> Dict[str, Any]:
         """
-        Generate a follow-up email after a meeting.
+        Generate a follow-up email.
         
         Args:
             meeting_id: Database meeting ID
             client_id: Client ID
-            user_id: User ID
-            additional_context: Additional context for the email
-        
-        Returns:
-            Dictionary with email content
+            zoom_meeting_id: Optional Zoom meeting ID to fetch transcript if needed
         """
-        # Gather context
-        context_parts = []
+        # Get meeting from database if meeting_id provided
+        meeting = None
+        transcript = None
         
-        # Get meeting summary if available
         if meeting_id:
             meeting = self.memory.get_meeting_by_id(meeting_id)
             if meeting:
-                context_parts.append(f"Meeting: {meeting.title}")
-                context_parts.append(f"Date: {meeting.scheduled_time}")
-                if meeting.summary:
-                    context_parts.append(f"\nMeeting Summary:\n{meeting.summary}")
+                transcript = meeting.transcript
+        
+        # If no transcript and zoom_meeting_id provided, try to fetch it
+        if not transcript and zoom_meeting_id:
+            try:
+                zoom_client = ZoomClient()
                 
-                # Get decisions and actions from this meeting
-                if meeting.client_id:
-                    decisions = self.memory.get_decisions_by_client(meeting.client_id, limit=10)
-                    meeting_decisions = [d for d in decisions if d.meeting_id == meeting_id]
-                    if meeting_decisions:
-                        context_parts.append("\nDecisions Made:")
-                        for d in meeting_decisions:
-                            context_parts.append(f"- {d.description}")
+                # Try direct transcript endpoint first
+                print(f"   🔍 Fetching transcript for follow-up email...")
+                transcript = await zoom_client.get_meeting_transcript_direct(zoom_meeting_id)
+                
+                # If direct endpoint fails, try UUID-based approach
+                if not transcript:
+                    print(f"   ⚠️ Direct endpoint failed, trying UUID-based approach...")
+                    # Get UUID from meeting ID (most recent instance)
+                    meeting_uuid = await zoom_client.get_meeting_uuid_from_id(
+                        meeting_id=zoom_meeting_id,
+                        expected_date=None  # Get most recent
+                    )
                     
-                    actions = self.memory.get_actions_by_client(meeting.client_id)
-                    meeting_actions = [a for a in actions if a.meeting_id == meeting_id]
-                    if meeting_actions:
-                        context_parts.append("\nAction Items:")
-                        for a in meeting_actions:
-                            assignee_text = f" ({a.assignee})" if a.assignee else ""
-                            due_text = f" by {a.due_date}" if a.due_date else ""
-                            context_parts.append(f"- {a.description}{assignee_text}{due_text}")
-        
-        # Get client context
-        if client_id:
-            client = self.memory.get_client_by_id(client_id)
-            if client:
-                context_parts.append(f"\nClient: {client.name}")
-                if client.email:
-                    context_parts.append(f"Email: {client.email}")
+                    if meeting_uuid:
+                        print(f"   ✅ Found UUID, getting transcript...")
+                        transcript = await zoom_client.get_transcript_by_uuid(meeting_uuid)
+                        if transcript:
+                            print(f"   ✅ Retrieved transcript using UUID-based method (same as test_get_transcript_by_uuid.py)")
                 
-                # Get email tone samples
-                if client.email:
-                    try:
-                        tone_samples = self.gmail.get_email_tone_samples(client.email, max_samples=3)
-                        if tone_samples:
-                            context_parts.append("\nPast Email Tone Samples:")
-                            for i, sample in enumerate(tone_samples[:2], 1):
-                                # Use first 200 chars of each sample
-                                sample_text = sample[:200] + "..." if len(sample) > 200 else sample
-                                context_parts.append(f"\nSample {i}:\n{sample_text}")
-                    except Exception:
-                        pass
+                # Final fallback: recordings-based approach
+                if not transcript:
+                    print(f"   ⚠️ UUID approach failed, trying recordings-based fallback...")
+                    transcript = await zoom_client.get_meeting_transcript_from_recordings(
+                        meeting_id=zoom_meeting_id,
+                        expected_date=None  # Use most recent recording
+                    )
+                    if transcript:
+                        print(f"   ✅ Retrieved transcript using recordings-based method")
+                
+            except Exception as e:
+                print(f"⚠️ Could not fetch transcript for follow-up: {e}")
+                import traceback
+                print(traceback.format_exc())
         
-        # Add any additional context
-        if additional_context:
-            context_parts.append(f"\nAdditional Context:\n{additional_context}")
-        
-        context_text = "\n".join(context_parts)
-        
-        if not context_text.strip():
-            raise ValueError("Insufficient context to generate follow-up email")
-        
-        # Generate email using LLM
-        prompt = f"""Context:
-{context_text}
-
-Generate a professional follow-up email based on the above information."""
-        
-        email_text = self.llm.generate(
-            prompt,
-            system_prompt=FOLLOWUP_TOOL_PROMPT,
-            temperature=0.8,  # Slightly higher for more natural language
-        )
-        
-        # Extract subject line if present
-        subject = None
-        body = email_text
-        
-        if "Subject:" in email_text:
-            parts = email_text.split("Subject:", 1)
-            if len(parts) == 2:
-                subject_line = parts[1].split("\n", 1)[0].strip()
-                body = parts[1].split("\n", 1)[1] if "\n" in parts[1] else parts[1]
-                subject = subject_line
-        elif email_text.startswith("Subject:"):
-            lines = email_text.split("\n", 2)
-            if len(lines) >= 2:
-                subject = lines[0].replace("Subject:", "").strip()
-                body = lines[2] if len(lines) > 2 else lines[1]
-        
+        # Placeholder implementation - would use transcript and meeting data to generate email
         return {
-            "subject": subject or "Follow-up: Meeting Discussion",
-            "body": body.strip(),
-            "full_email": email_text,
-            "client_id": client_id,
-            "meeting_id": meeting_id,
+            "subject": "Follow-up email subject",
+            "body": "Follow-up email body would be generated here."
         }
 

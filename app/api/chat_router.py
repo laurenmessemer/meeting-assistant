@@ -1,54 +1,76 @@
 """Chat API router."""
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
+from pydantic import BaseModel
+from typing import Optional, List, Dict, Any
 from app.db.session import get_db
-from app.memory.schemas import ChatMessage, ChatResponse
 from app.orchestrator.agent import AgentOrchestrator
-from app.memory.repo import MemoryRepository
-
-router = APIRouter(prefix="/api/chat", tags=["chat"])
+from sqlalchemy.orm import Session
 
 
-@router.post("", response_model=ChatResponse)
+router = APIRouter(prefix="/api", tags=["chat"])
+
+
+class ChatMessage(BaseModel):
+    """Chat message request model."""
+    message: str
+    user_id: Optional[int] = None
+    client_id: Optional[int] = None
+    selected_meeting_id: Optional[int] = None
+    selected_calendar_event_id: Optional[str] = None
+
+
+class MeetingOption(BaseModel):
+    """Meeting option for user selection."""
+    id: str
+    title: str
+    date: str
+    calendar_event_id: Optional[str] = None
+    meeting_id: Optional[int] = None
+    client_name: Optional[str] = None
+
+
+class ChatResponse(BaseModel):
+    """Chat response model."""
+    response: str
+    tool_used: Optional[str] = None
+    meeting_options: Optional[List[MeetingOption]] = None
+    extra_data: Optional[Dict[str, Any]] = None
+
+
+@router.post("/chat", response_model=ChatResponse)
 async def chat(
-    message: ChatMessage,
+    chat_message: ChatMessage,
     db: Session = Depends(get_db)
 ):
     """
-    Main chat endpoint for interacting with the agent.
-    
-    The agent will:
-    1. Recognize intent
-    2. Plan workflow
-    3. Retrieve memory
-    4. Execute appropriate tool
-    5. Synthesize response
-    6. Write to memory
+    Process a chat message and return a response.
     """
     try:
-        # Get or create user if user_id not provided
-        user_id = message.user_id
-        if not user_id and hasattr(message, 'user_email'):
-            # In a real app, you'd extract user from auth token
-            # For now, we'll use a default or require user_id
-            pass
-        
-        # Initialize orchestrator
         orchestrator = AgentOrchestrator(db)
         
-        # Process message
         result = await orchestrator.process_message(
-            message=message.message,
-            user_id=user_id,
-            client_id=message.client_id
+            message=chat_message.message,
+            user_id=chat_message.user_id,
+            client_id=chat_message.client_id,
+            selected_meeting_id=chat_message.selected_meeting_id,
+            selected_calendar_event_id=chat_message.selected_calendar_event_id
         )
         
+        # Convert meeting_options to MeetingOption models if present
+        meeting_options = None
+        if result.get("meeting_options"):
+            meeting_options = [
+                MeetingOption(**opt) if isinstance(opt, dict) else opt
+                for opt in result["meeting_options"]
+            ]
+        
         return ChatResponse(
-            response=result["response"],
+            response=result.get("response", ""),
             tool_used=result.get("tool_used"),
-            extra_data=result.get("metadata", {})
+            meeting_options=meeting_options,
+            extra_data=result.get("metadata")
         )
-    
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error processing message: {str(e)}")
+

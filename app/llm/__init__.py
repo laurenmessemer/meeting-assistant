@@ -1,2 +1,2 @@
-"""LLM client and prompts."""
+"""LLM client modules."""
 
