@@ -61,6 +61,7 @@ class SummarizationTool:
             Dictionary with summary, decisions, and actions, or error dict
         """
         # If calendar_event is provided, process it first
+        no_zoom_recording = False
         if calendar_event:
             result = await self._process_calendar_event(
                 calendar_event, client_name, user_id, client_id
@@ -74,6 +75,7 @@ class SummarizationTool:
             meeting_date = result.get("meeting_date")
             recording_date = result.get("recording_date")
             attendees = result.get("attendees")
+            no_zoom_recording = result.get("no_zoom_recording", False)
         
         # Get meeting from database if meeting_id provided
         meeting = None
@@ -144,7 +146,42 @@ class SummarizationTool:
         attendees_display = ", ".join(attendees) if attendees else (meeting.attendees if meeting and meeting.attendees else "Not specified")
         
         # Generate structured summary using LLM
-        prompt = f"""Analyze the following meeting transcript and create a comprehensive, well-structured summary.
+        if no_zoom_recording:
+            # Generate summary without transcript - just calendar information
+            prompt = f"""Create a meeting summary based on the available calendar information. Note that no Zoom recording is available for this meeting.
+
+Meeting Information:
+- Title: {title}
+- Calendar Event Date: {date_str}
+- Attendees: {attendees_display}
+
+IMPORTANT: There is no Zoom recording or transcript available for this meeting. Please create a summary with the following EXACT structure and formatting:
+
+# Meeting Header
+{title}
+
+## Date from calendar:
+{date_str}
+
+## Participants:
+{attendees_display}
+
+## Overview:
+[Provide a brief 2-3 sentence summary based on the meeting title and attendees. Since no transcript is available, focus on what can be inferred from the meeting title and who was scheduled to attend.]
+
+## Recording Status:
+⚠️ No Zoom recording is available for this meeting. This summary is based solely on the calendar event information (title, date, and participants).
+
+## Outline:
+[Since no transcript is available, you cannot provide details about what was discussed. Instead, write: "No transcript available - unable to provide meeting outline."]
+
+## Conclusion:
+[Since no transcript is available, you cannot provide details about decisions or next steps. Instead, write: "No transcript available - unable to provide meeting conclusions."]
+
+Format your response using the EXACT section headers shown above (with # and ## markdown formatting). Be clear, concise, and well-organized."""
+        else:
+            # Generate summary with transcript
+            prompt = f"""Analyze the following meeting transcript and create a comprehensive, well-structured summary.
 
 Meeting Information:
 - Title: {title}
@@ -183,8 +220,10 @@ Format your response using the EXACT section headers shown above (with # and ## 
             temperature=0.3,  # Lower temperature for more factual summaries
         )
         
-        # Extract structured data (decisions only) using LLM
-        extraction_prompt = f"""Based on the following meeting summary, extract:
+        # Extract structured data (decisions only) using LLM - skip if no transcript
+        decisions = []
+        if not no_zoom_recording:
+            extraction_prompt = f"""Based on the following meeting summary, extract:
 1. All decisions made (who decided what)
 
 Meeting Summary:
@@ -196,34 +235,32 @@ Respond in JSON format:
         {{"description": "...", "context": "..."}}
     ]
 }}"""
-        
-        structured_data = self.llm.generate_structured(
-            extraction_prompt,
-            response_format="JSON",
-            temperature=0.2,
-        )
-        
-        # Update meeting with summary (if meeting_id exists)
-        if meeting_id:
-            self.memory.update_meeting(
-                meeting_id,
-                MeetingUpdate(summary=summary_text, transcript=transcript)
+            
+            structured_data = self.llm.generate_structured(
+                extraction_prompt,
+                response_format="JSON",
+                temperature=0.2,
             )
-        
-        # Store decisions
-        decisions = []
-        
-        if meeting and meeting.client_id:
-            for decision_data in structured_data.get("decisions", []):
-                decision = self.memory.create_decision(
-                    DecisionCreate(
-                        meeting_id=meeting_id,
-                        client_id=meeting.client_id,
-                        description=decision_data.get("description", ""),
-                        context=decision_data.get("context"),
-                    )
+            
+            # Update meeting with summary (if meeting_id exists)
+            if meeting_id:
+                self.memory.update_meeting(
+                    meeting_id,
+                    MeetingUpdate(summary=summary_text, transcript=transcript)
                 )
-                decisions.append(decision)
+            
+            # Store decisions
+            if meeting and meeting.client_id:
+                for decision_data in structured_data.get("decisions", []):
+                    decision = self.memory.create_decision(
+                        DecisionCreate(
+                            meeting_id=meeting_id,
+                            client_id=meeting.client_id,
+                            description=decision_data.get("description", ""),
+                            context=decision_data.get("context"),
+                        )
+                    )
+                    decisions.append(decision)
         
         return {
             "summary": summary_text,
@@ -288,15 +325,30 @@ Respond in JSON format:
         zoom_meeting_id = meeting_info.get('zoom_meeting_id')
         
         if not zoom_meeting_id:
-            print(f"❌ No Zoom meeting ID found in calendar event")
+            print(f"⚠️ No Zoom meeting ID found in calendar event")
             print(f"   Checked: description, location, conferenceData")
+            print(f"   📝 Will generate summary with calendar information only (no transcript)")
+            
+            # Extract attendees from calendar event
+            event_attendees = calendar_event.get('attendees', [])
+            attendees_list = []
+            for att in event_attendees:
+                name = att.get('displayName') or att.get('email', '')
+                if name:
+                    attendees_list.append(name)
+            
+            # Format date
+            formatted_date = event_date.strftime("%B %d, %Y at %I:%M %p")
+            
+            # Return calendar info without transcript (no error - we'll still generate a summary)
             return {
-                "error": (
-                    f"Found meeting '{event_title}' from your calendar"
-                    + (f" matching '{client_name}'" if client_name else "")
-                    + ", but no Zoom link was found in the event. "
-                    "To summarize a meeting, you need a Zoom link in the calendar event."
-                )
+                "meeting_id": None,  # No meeting in DB since no transcript
+                "transcript": None,  # No transcript available
+                "meeting_title": event_title,
+                "meeting_date": formatted_date,
+                "recording_date": None,  # No recording
+                "attendees": attendees_list,
+                "no_zoom_recording": True  # Flag to indicate no Zoom recording
             }
         
         print(f"✅ Found Zoom meeting ID: {zoom_meeting_id}")
