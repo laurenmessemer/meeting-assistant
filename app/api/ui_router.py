@@ -183,6 +183,110 @@ async def get_ui():
             font-size: 14px;
             color: #666;
         }
+        
+        /* Structured Summary Styling */
+        .summary-container {
+            max-width: 100%;
+        }
+        
+        .summary-header {
+            font-size: 24px;
+            font-weight: 700;
+            color: #667eea;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #667eea;
+        }
+        
+        .summary-section {
+            margin-bottom: 25px;
+        }
+        
+        .summary-section-title {
+            font-size: 18px;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 10px;
+            padding: 8px 12px;
+            background: #f0f4ff;
+            border-left: 4px solid #667eea;
+            border-radius: 4px;
+        }
+        
+        .summary-section-content {
+            padding: 0 12px;
+            line-height: 1.7;
+            color: #555;
+        }
+        
+        .summary-section-content ul,
+        .summary-section-content ol {
+            margin: 10px 0;
+            padding-left: 25px;
+        }
+        
+        .summary-section-content li {
+            margin: 8px 0;
+        }
+        
+        .summary-section-content h3 {
+            font-size: 16px;
+            font-weight: 600;
+            color: #444;
+            margin: 15px 0 8px 0;
+        }
+        
+        .summary-section-content h4 {
+            font-size: 14px;
+            font-weight: 600;
+            color: #555;
+            margin: 12px 0 6px 0;
+        }
+        
+        .summary-section-content p {
+            margin: 10px 0;
+        }
+        
+        .action-items-group {
+            margin: 15px 0;
+            padding: 12px;
+            background: #f8f9fa;
+            border-radius: 6px;
+        }
+        
+        .action-items-group h4 {
+            color: #667eea;
+            margin-bottom: 10px;
+        }
+        
+        .action-item {
+            padding: 8px 0;
+            border-bottom: 1px solid #e0e0e0;
+        }
+        
+        .action-item:last-child {
+            border-bottom: none;
+        }
+        
+        .participants-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+        
+        .participant-tag {
+            padding: 4px 12px;
+            background: #e8f0fe;
+            color: #1967d2;
+            border-radius: 12px;
+            font-size: 14px;
+        }
+        
+        .date-info {
+            color: #666;
+            font-size: 14px;
+            margin: 5px 0;
+        }
     </style>
 </head>
 <body>
@@ -208,13 +312,189 @@ async def get_ui():
         const messageInput = document.getElementById('messageInput');
         const sendButton = document.getElementById('sendButton');
         
+        function formatStructuredSummary(text) {
+            // Check if this looks like a structured summary (has markdown headers)
+            if (!text.includes('#') && !text.includes('##')) {
+                return text; // Not structured, return as-is
+            }
+            
+            // Create container for structured summary
+            const container = document.createElement('div');
+            container.className = 'summary-container';
+            
+            // Normalize line breaks - handle both escaped and actual newlines
+            const newlinePattern = new RegExp('\\\\n', 'g');
+            const normalizedText = text.replace(newlinePattern, '\\n');
+            const lines = normalizedText.split('\\n');
+            
+            let currentSection = null;
+            let currentContent = [];
+            let foundHeader = false;
+            let inActionItemsGroup = false;
+            
+            for (let i = 0; i < lines.length; i++) {
+                const line = lines[i];
+                const trimmed = line.trim();
+                
+                // Check for main header (# Meeting Header)
+                if (trimmed.startsWith('# ') && !trimmed.startsWith('##') && !foundHeader) {
+                    const headerText = trimmed.substring(2).trim();
+                    const header = document.createElement('div');
+                    header.className = 'summary-header';
+                    header.textContent = headerText;
+                    container.appendChild(header);
+                    foundHeader = true;
+                }
+                // Check for section headers (## Section Name)
+                else if (trimmed.startsWith('## ')) {
+                    // Save previous section if exists
+                    if (currentSection) {
+                        const contentDiv = document.createElement('div');
+                        contentDiv.className = 'summary-section-content';
+                        contentDiv.innerHTML = formatContent(currentContent.join('\\n'));
+                        currentSection.appendChild(contentDiv);
+                    }
+                    
+                    // Create new section
+                    currentSection = document.createElement('div');
+                    currentSection.className = 'summary-section';
+                    
+                    const sectionTitle = document.createElement('div');
+                    sectionTitle.className = 'summary-section-title';
+                    const titleText = trimmed.substring(3).replace(':', '').trim();
+                    sectionTitle.textContent = titleText;
+                    currentSection.appendChild(sectionTitle);
+                    
+                    currentContent = [];
+                    container.appendChild(currentSection);
+                    inActionItemsGroup = false;
+                }
+                // Regular content line
+                else if (trimmed) {
+                    currentContent.push(line);
+                }
+            }
+            
+            // Add last section's content
+            if (currentSection && currentContent.length > 0) {
+                const contentDiv = document.createElement('div');
+                contentDiv.className = 'summary-section-content';
+                contentDiv.innerHTML = formatContent(currentContent.join('\\n'));
+                currentSection.appendChild(contentDiv);
+            }
+            
+            return container;
+        }
+        
+        function formatContent(content) {
+            if (!content) return '';
+            
+            // Split into lines for processing
+            const lines = content.split('\\n');
+            let html = '';
+            let inList = false;
+            let inActionGroup = false;
+            
+            for (let i = 0; i < lines.length; i++) {
+                const line = lines[i];
+                const trimmed = line.trim();
+                
+                if (!trimmed) {
+                    if (inList) {
+                        html += '</ul>';
+                        inList = false;
+                    }
+                    html += '<br>';
+                    continue;
+                }
+                
+                // Check for action items group header
+                if (trimmed.includes('### Action Items for')) {
+                    if (inList) {
+                        html += '</ul>';
+                        inList = false;
+                    }
+                    const actionItemsPattern = new RegExp('### Action Items for (Client|User):');
+                    const match = trimmed.match(actionItemsPattern);
+                    if (match) {
+                        html += '<div class="action-items-group"><h4>Action Items for ' + match[1] + '</h4>';
+                        inActionGroup = true;
+                    }
+                }
+                // Check for list item
+                else if (new RegExp('^[-*] (.+)$').test(trimmed)) {
+                    if (!inList) {
+                        html += '<ul>';
+                        inList = true;
+                    }
+                    const itemText = trimmed.substring(2).trim();
+                    html += '<li class="action-item">' + escapeHtml(itemText) + '</li>';
+                }
+                // Check for "None" in action items
+                else if (trimmed === 'None' && inActionGroup) {
+                    if (inList) {
+                        html += '</ul>';
+                        inList = false;
+                    }
+                    html += '<p style="color: #999; font-style: italic;">None</p></div>';
+                    inActionGroup = false;
+                }
+                // Regular paragraph
+                else {
+                    if (inList) {
+                        html += '</ul>';
+                        inList = false;
+                    }
+                    if (inActionGroup && !trimmed.includes('###')) {
+                        // Close action group if we hit non-action content
+                        html += '</div>';
+                        inActionGroup = false;
+                    }
+                    // Convert markdown formatting
+                    let formatted = escapeHtml(trimmed);
+                    // Use RegExp constructor to avoid backslash issues in Python strings
+                    const boldPattern = new RegExp('\\\\*\\\\*(.*?)\\\\*\\\\*', 'g');
+                    const italicPattern = new RegExp('\\\\*(.*?)\\\\*', 'g');
+                    formatted = formatted.replace(boldPattern, '<strong>$1</strong>');
+                    formatted = formatted.replace(italicPattern, '<em>$1</em>');
+                    html += '<p>' + formatted + '</p>';
+                }
+            }
+            
+            if (inList) {
+                html += '</ul>';
+            }
+            if (inActionGroup) {
+                html += '</div>';
+            }
+            
+            return html;
+        }
+        
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+        
         function addMessage(text, isUser = false, meetingOptions = null) {
             const messageDiv = document.createElement('div');
             messageDiv.className = `message ${isUser ? 'user' : 'assistant'}`;
             
             const bubble = document.createElement('div');
             bubble.className = 'message-bubble';
-            bubble.textContent = text;
+            
+            // Check if this is a structured summary and format it
+            if (!isUser && (text.includes('# Meeting Header') || text.includes('## Overview'))) {
+                const formattedSummary = formatStructuredSummary(text);
+                if (formattedSummary instanceof HTMLElement) {
+                    bubble.appendChild(formattedSummary);
+                } else {
+                    bubble.textContent = text;
+                }
+            } else {
+                bubble.textContent = text;
+            }
             
             messageDiv.appendChild(bubble);
             

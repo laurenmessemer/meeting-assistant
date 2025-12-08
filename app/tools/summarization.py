@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from app.llm.gemini_client import GeminiClient
 from app.llm.prompts import SUMMARIZATION_TOOL_PROMPT
 from app.memory.repo import MemoryRepository
-from app.memory.schemas import DecisionCreate, ActionCreate, MeetingUpdate, MeetingCreate
+from app.memory.schemas import DecisionCreate, MeetingUpdate, MeetingCreate
 from app.integrations.zoom_client import ZoomClient
 from app.integrations.google_calendar_client import GoogleCalendarClient
 import httpx
@@ -143,42 +143,39 @@ class SummarizationTool:
         recording_date_str = recording_date or "N/A"
         attendees_display = ", ".join(attendees) if attendees else (meeting.attendees if meeting and meeting.attendees else "Not specified")
         
-        # Generate summary using LLM
-        prompt = f"""Analyze the following meeting transcript and create a comprehensive summary with the following structure:
+        # Generate structured summary using LLM
+        prompt = f"""Analyze the following meeting transcript and create a comprehensive, well-structured summary.
 
-Meeting Title: {title}
-Calendar Event Date: {date_str}
-Zoom Recording Date: {recording_date_str}
-Attendees: {attendees_display}
-
-1. OVERVIEW: A brief 2-3 sentence summary of what the meeting was about, who attended, and the main purpose.
-
-2. ACTION ITEMS: Extract all action items mentioned in the meeting. For each action item, identify:
-   - What needs to be done
-   - Who is responsible (if mentioned - could be the client, the user, or someone else)
-   - Any deadlines or timeframes (if mentioned)
-   
-   IMPORTANT: Categorize action items into two groups:
-   - Action Items for Client: Tasks that the client or their team needs to complete
-   - Action Items for User: Tasks that the user (meeting organizer) needs to complete
-   
-   If it's unclear who should do the task, use your best judgment based on context.
-
-3. OUTLINE: A detailed outline of the main topics discussed, organized by topic with key points under each. Use clear headings and sub-points.
-
-4. CONCLUSION: A summary of decisions made, next steps, and any important takeaways.
+Meeting Information:
+- Title: {title}
+- Calendar Event Date: {date_str}
+- Zoom Recording Date: {recording_date_str}
+- Attendees: {attendees_display}
 
 Meeting Transcript:
 {transcript}
 
-Please format your response clearly with the sections labeled as:
-## OVERVIEW
-## OUTLINE
-## ACTION ITEMS FOR CLIENT
-## ACTION ITEMS FOR USER
-## CONCLUSION
+Please create a summary with the following EXACT structure and formatting:
 
-If there are no action items for a category, write "None" for that section."""
+# Meeting Header
+{title}
+
+## Date from calendar:
+{date_str}
+
+## Participants:
+{attendees_display}
+
+## Overview:
+[Provide a brief 2-3 sentence summary of what the meeting was about, who attended, and the main purpose. Focus on the key objectives and outcomes.]
+
+## Outline:
+[Provide 2-3 sentences summarizing the major sections or topics discussed in the meeting. Write in complete sentences (not bullet points) that outline what was covered in each main section. Keep it succinct and focused on the key discussion areas.]
+
+## Conclusion:
+[Provide a summary of decisions made, next steps, and any important takeaways. Include any commitments, agreements, or follow-up requirements.]
+
+Format your response using the EXACT section headers shown above (with # and ## markdown formatting). Be clear, concise, and well-organized."""
         
         summary_text = self.llm.generate(
             prompt,
@@ -186,10 +183,9 @@ If there are no action items for a category, write "None" for that section."""
             temperature=0.3,  # Lower temperature for more factual summaries
         )
         
-        # Extract structured data (decisions and actions) using LLM
+        # Extract structured data (decisions only) using LLM
         extraction_prompt = f"""Based on the following meeting summary, extract:
 1. All decisions made (who decided what)
-2. All action items (who needs to do what by when)
 
 Meeting Summary:
 {summary_text}
@@ -198,9 +194,6 @@ Respond in JSON format:
 {{
     "decisions": [
         {{"description": "...", "context": "..."}}
-    ],
-    "actions": [
-        {{"description": "...", "assignee": "...", "due_date": "YYYY-MM-DD or null"}}
     ]
 }}"""
         
@@ -217,11 +210,10 @@ Respond in JSON format:
                 MeetingUpdate(summary=summary_text, transcript=transcript)
             )
         
-        # Store decisions and actions
+        # Store decisions
         decisions = []
-        actions = []
         
-        if meeting.client_id:
+        if meeting and meeting.client_id:
             for decision_data in structured_data.get("decisions", []):
                 decision = self.memory.create_decision(
                     DecisionCreate(
@@ -232,27 +224,6 @@ Respond in JSON format:
                     )
                 )
                 decisions.append(decision)
-            
-            for action_data in structured_data.get("actions", []):
-                due_date_str = action_data.get("due_date")
-                due_date = None
-                if due_date_str:
-                    from datetime import datetime
-                    try:
-                        due_date = datetime.fromisoformat(due_date_str)
-                    except ValueError:
-                        pass
-                
-                action = self.memory.create_action(
-                    ActionCreate(
-                        meeting_id=meeting_id,
-                        client_id=meeting.client_id,
-                        description=action_data.get("description", ""),
-                        assignee=action_data.get("assignee"),
-                        due_date=due_date,
-                    )
-                )
-                actions.append(action)
         
         return {
             "summary": summary_text,
@@ -267,16 +238,6 @@ Respond in JSON format:
                     "context": d.context,
                 }
                 for d in decisions
-            ],
-            "actions": [
-                {
-                    "id": a.id,
-                    "description": a.description,
-                    "assignee": a.assignee,
-                    "due_date": a.due_date.isoformat() if a.due_date else None,
-                    "status": a.status,
-                }
-                for a in actions
             ],
         }
     

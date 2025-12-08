@@ -88,44 +88,20 @@ guide them on how to use the assistant."""
             return brief
         
         elif tool_name == "summarization":
-            # Get structured summary data
+            # Get structured summary data - the summary_text already contains the full structured format
             summary_text = tool_result.get("summary", "")
-            meeting_title = tool_result.get("meeting_title", "Untitled Meeting")
-            meeting_date = tool_result.get("meeting_date", "Unknown date")
-            recording_date = tool_result.get("recording_date", None)
-            attendees = tool_result.get("attendees", "Not specified")
-            decisions = tool_result.get("decisions", [])
-            actions = tool_result.get("actions", [])
             
-            # Format structured summary response
-            response_parts = [
-                "## Summary\n",
-                f"**Meeting Title:** {meeting_title}\n",
-                f"**Calendar Event Date:** {meeting_date}\n"
-            ]
+            # The summary_text from summarization tool already includes:
+            # - Meeting Header (title)
+            # - Date from calendar
+            # - Participants
+            # - Overview
+            # - Outline
+            # - Action Items (for Client and User)
+            # - Conclusion
+            # So we can return it directly for the UI to format
             
-            # Add recording date if available
-            if recording_date:
-                response_parts.append(f"**Zoom Recording Date:** {recording_date}\n")
-            
-            response_parts.extend([
-                f"**Attendees:** {attendees}\n\n",
-                summary_text
-            ])
-            
-            if decisions:
-                response_parts.append("\n\nDecisions Made:")
-                for d in decisions:
-                    response_parts.append(f"- {d.get('description', '')}")
-            
-            if actions:
-                response_parts.append("\n\nAction Items:")
-                for a in actions:
-                    assignee_text = f" ({a.get('assignee')})" if a.get('assignee') else ""
-                    due_text = f" by {a.get('due_date')}" if a.get('due_date') else ""
-                    response_parts.append(f"- {a.get('description', '')}{assignee_text}{due_text}")
-            
-            return "\n".join(response_parts)
+            return summary_text
         
         elif tool_name == "followup":
             email_body = tool_result.get("body", "")
