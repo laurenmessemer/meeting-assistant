@@ -197,7 +197,26 @@ class MeetingFinder:
                     
                     if not matching_events:
                         print(f"         ❌ No events found matching client '{client_name}' on {target_date_only}")
-                        return None, None
+                        # Before falling back, try searching within date window
+                        print(f"         🔍 Attempting date window search as fallback...")
+                        window_events = self._search_events_within_date_window(
+                            client_name=client_name,
+                            target_date=target_date_only,
+                            window_days=3
+                        )
+                        
+                        # Filter window events to past events only
+                        if window_events:
+                            window_events = [evt for evt in window_events if _is_event_in_past(evt, now)]
+                        
+                        if window_events:
+                            print(f"         ✅ Found {len(window_events)} event(s) in date window, using as fallback")
+                            # ALWAYS return options for user selection (even if only one match)
+                            print(f"         📋 Returning options for user selection")
+                            return None, self._create_meeting_options(window_events, client_name, user_id)
+                        else:
+                            print(f"         ❌ No events found in date window either")
+                            return None, None
                     
                     # ALWAYS return options for user selection (even if only one match)
                     # This allows user to confirm before we fetch transcript
@@ -359,6 +378,58 @@ class MeetingFinder:
             return evt_dt.date() == target_date
         except (ValueError, AttributeError, TypeError):
             return False
+    
+    def _search_events_within_date_window(
+        self,
+        client_name: str,
+        target_date: date,
+        window_days: int = 3
+    ) -> list:
+        """
+        Search for calendar events within a date window around target_date.
+        
+        Args:
+            client_name: Client name to search for (case-insensitive)
+            target_date: Target date to search around
+            window_days: Number of days before/after target_date to search (default: 3)
+        
+        Returns:
+            List of matching calendar events sorted newest → oldest
+        """
+        from datetime import datetime, timezone
+        
+        # Build date range: (target_date - window_days) → (target_date + window_days)
+        start_date = target_date - timedelta(days=window_days)
+        end_date = target_date + timedelta(days=window_days)
+        
+        # Convert to datetime for get_calendar_events_by_time_range
+        # Start at beginning of start_date
+        start_dt = datetime.combine(start_date, datetime.min.time()).replace(tzinfo=timezone.utc)
+        # End at end of end_date
+        end_dt = datetime.combine(end_date, datetime.max.time()).replace(tzinfo=timezone.utc)
+        
+        print(f"         🔍 Searching date window: {start_date} to {end_date} (±{window_days} days)")
+        
+        # Fetch ALL calendar events in the date range
+        all_events = get_calendar_events_by_time_range(start_dt, end_dt)
+        print(f"         ✅ Found {len(all_events)} total events in date window")
+        
+        # Filter events where summary/description/location contain client_name (case-insensitive)
+        client_name_lower = client_name.lower()
+        matching_events = [
+            evt for evt in all_events
+            if client_name_lower in evt.get('summary', '').lower()
+            or client_name_lower in evt.get('description', '').lower()
+            or client_name_lower in evt.get('location', '').lower()
+        ]
+        
+        print(f"         ✅ Found {len(matching_events)} events matching client '{client_name}' in date window")
+        
+        # Sort results newest → oldest using existing sort helper
+        if matching_events:
+            matching_events = self._sort_events_by_date(matching_events)
+        
+        return matching_events
     
     def _sort_events_by_date(self, events):
         """Sort events by date (most recent first)."""
