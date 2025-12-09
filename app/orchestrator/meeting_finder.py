@@ -4,17 +4,23 @@ from typing import Optional, Dict, Any, Tuple
 from datetime import datetime, timezone, timedelta, date
 from sqlalchemy.orm import Session
 from app.memory.repo import MemoryRepository
-from app.integrations.google_calendar_client import GoogleCalendarClient
+from app.integrations.google_calendar_client import (
+    get_calendar_event_by_id,
+    get_calendar_events_on_date,
+    get_calendar_events_by_time_range,
+    search_calendar_events_by_keyword
+)
 from app.memory.schemas import MeetingOption
+from app.utils.date_utils import extract_event_datetime
+from app.utils.calendar_utils import sort_events_by_date
 
 
 class MeetingFinder:
     """Handles finding meetings from database and Google Calendar."""
     
-    def __init__(self, db: Session, memory: MemoryRepository, calendar: Optional[GoogleCalendarClient] = None):
+    def __init__(self, db: Session, memory: MemoryRepository):
         self.db = db
         self.memory = memory
-        self.calendar = calendar
     
     def find_meeting_in_database(
         self,
@@ -28,7 +34,6 @@ class MeetingFinder:
         Returns meeting_id if found, None otherwise.
         """
         try:
-            from app.memory.models import Meeting
             from datetime import datetime, timezone
             
             print(f"      [MeetingFinder] find_meeting_in_database called")
@@ -37,7 +42,7 @@ class MeetingFinder:
             # If meeting_id is provided, verify it exists
             if meeting_id:
                 print(f"         ✅ meeting_id provided, verifying existence...")
-                db_meeting = self.db.query(Meeting).filter(Meeting.id == meeting_id).first()
+                db_meeting = self.memory.get_meeting_by_id(meeting_id)
                 if db_meeting:
                     print(f"         ✅ Meeting {meeting_id} found: {db_meeting.title}")
                     return meeting_id
@@ -142,10 +147,6 @@ class MeetingFinder:
         print(f"      [MeetingFinder] find_meeting_in_calendar called")
         print(f"         client_name={client_name}, target_date={target_date}, selected_meeting_number={selected_meeting_number}, calendar_event_id={calendar_event_id}, user_id={user_id}")
         
-        if not self.calendar:
-            print(f"         ❌ Calendar client not available")
-            return None, None
-        
         from datetime import datetime, timedelta, timezone
         from app.integrations.google_calendar_client import _is_event_in_past
         
@@ -156,7 +157,7 @@ class MeetingFinder:
             if calendar_event_id:
                 print(f"         🔍 PRIORITY 1: Fetching calendar event directly by ID: {calendar_event_id}")
                 try:
-                    event = self.calendar.get_event_by_id(calendar_event_id)
+                    event = get_calendar_event_by_id(calendar_event_id)
                     if event:
                         print(f"         ✅ Successfully fetched calendar event: {event.get('summary', 'Untitled')}")
                         return event, None
@@ -176,7 +177,7 @@ class MeetingFinder:
                     print(f"         🔍 Fetching ALL events on EXACT date: {target_date_only}")
                     
                     # Get ALL events on that exact date
-                    events_on_date = self.calendar.get_events_on_date(target_date_only)
+                    events_on_date = get_calendar_events_on_date(target_date_only)
                     print(f"         ✅ Found {len(events_on_date)} total events on {target_date_only}")
                     
                     # Filter by client name (keyword)
@@ -206,7 +207,7 @@ class MeetingFinder:
                     # No target date - search recent past (last 90 days)
                     search_days_back = 90
                     print(f"         📅 No target date, searching last {search_days_back} days")
-                    matching_events = self.calendar.search_events_by_keyword(
+                    matching_events = search_calendar_events_by_keyword(
                         client_name,
                         max_results=50,
                         include_past=True,
@@ -259,7 +260,7 @@ class MeetingFinder:
                     # Handle selection by calendar_event_id (user has already selected)
                     if calendar_event_id:
                         try:
-                            event = self.calendar.get_event_by_id(calendar_event_id)
+                            event = get_calendar_event_by_id(calendar_event_id)
                             if event:
                                 print(f"         ✅ Found event by ID: '{event.get('summary', 'Untitled')}'")
                                 return event, None
@@ -284,7 +285,7 @@ class MeetingFinder:
                 print(f"         🔍 PRIORITY 3: No client_name, getting recent past events...")
                 end_time = datetime.utcnow()
                 start_time = end_time - timedelta(days=90)
-                past_events = self.calendar.get_events_by_time_range(start_time, end_time)
+                past_events = get_calendar_events_by_time_range(start_time, end_time)
                 print(f"         Found {len(past_events)} events in time range")
                 
                 if past_events:
@@ -314,7 +315,7 @@ class MeetingFinder:
                         if calendar_event_id:
                             # Try direct fetch first
                             try:
-                                event = self.calendar.get_event_by_id(calendar_event_id)
+                                event = get_calendar_event_by_id(calendar_event_id)
                                 if event:
                                     return event, None
                             except:
@@ -350,20 +351,9 @@ class MeetingFinder:
     def _is_event_on_exact_date(self, event: Dict[str, Any], target_date: date) -> bool:
         """Check if an event is on the exact target date (same day, no tolerance)."""
         try:
-            evt_start = event.get('start', {})
-            evt_date_str = evt_start.get('dateTime') or evt_start.get('date')
-            if not evt_date_str:
+            evt_dt = extract_event_datetime(event)
+            if not evt_dt:
                 return False
-            
-            if 'T' in evt_date_str:
-                evt_dt = datetime.fromisoformat(evt_date_str.replace('Z', '+00:00'))
-            else:
-                evt_dt = datetime.fromisoformat(evt_date_str)
-            
-            if evt_dt.tzinfo is None:
-                evt_dt = evt_dt.replace(tzinfo=timezone.utc)
-            else:
-                evt_dt = evt_dt.astimezone(timezone.utc)
             
             # Compare just the date part (ignore time)
             return evt_dt.date() == target_date
@@ -372,37 +362,11 @@ class MeetingFinder:
     
     def _sort_events_by_date(self, events):
         """Sort events by date (most recent first)."""
-        from datetime import datetime, timezone
-        
-        def get_event_date(event):
-            start = event.get('start', {})
-            date_time = start.get('dateTime') or start.get('date', '')
-            if not date_time:
-                return datetime.min.replace(tzinfo=timezone.utc)
-            try:
-                if 'T' in date_time:
-                    try:
-                        dt = datetime.fromisoformat(date_time.replace('Z', '+00:00'))
-                    except ValueError:
-                        dt_str = date_time.split('+')[0].split('-05:00')[0].split('-06:00')[0].split('-07:00')[0].split('-08:00')[0]
-                        dt = datetime.fromisoformat(dt_str)
-                    if dt.tzinfo:
-                        dt = dt.astimezone(timezone.utc)
-                    else:
-                        dt = dt.replace(tzinfo=timezone.utc)
-                    return dt
-                else:
-                    dt = datetime.fromisoformat(date_time)
-                    return dt.replace(tzinfo=timezone.utc)
-            except:
-                return datetime.min.replace(tzinfo=timezone.utc)
-        
-        sorted_events = sorted(events, key=get_event_date, reverse=True)
-        return sorted_events
+        return sort_events_by_date(events, reverse=True)
     
     def _create_meeting_options(self, events, client_name: Optional[str], user_id: Optional[int]) -> list:
         """Create MeetingOption objects from calendar events."""
-        from app.memory.models import Meeting
+        from app.memory.schemas import MeetingOption
         
         meeting_options = []
         for i, evt in enumerate(events, 1):
@@ -413,10 +377,8 @@ class MeetingFinder:
             
             evt_id = evt.get('id')
             db_meeting_id = None
-            if evt_id and user_id:
-                db_meeting = self.db.query(Meeting).filter(
-                    Meeting.calendar_event_id == evt_id
-                ).first()
+            if evt_id:
+                db_meeting = self.memory.get_meeting_by_calendar_event_id(evt_id)
                 if db_meeting:
                     db_meeting_id = db_meeting.id
             

@@ -17,8 +17,8 @@ class IntentRecognizer:
         prompt = f"User message: {message}\n\nAnalyze the intent and respond in JSON format."
         
         try:
-            result = self.llm.generate_structured(
-                prompt,
+            result = self.llm.llm_chat(
+                prompt=prompt,
                 system_prompt=INTENT_RECOGNITION_PROMPT,
                 response_format="JSON",
                 temperature=0.3,

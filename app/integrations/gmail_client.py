@@ -153,3 +153,62 @@ class GmailClient:
         except Exception as e:
             raise Exception(f"Error fetching thread: {str(e)}")
 
+
+# Simple function wrappers - no business logic, just API calls
+def search_gmail_messages(query: str, max_results: int = 10) -> List[Dict[str, Any]]:
+    """
+    Search for Gmail messages.
+    
+    Args:
+        query: Gmail search query
+        max_results: Maximum number of results
+    
+    Returns:
+        List of message dictionaries
+    """
+    client = GmailClient()
+    return client.search_messages(query, max_results)
+
+
+def get_gmail_message(message_id: str) -> Optional[Dict[str, Any]]:
+    """
+    Get a Gmail message by ID.
+    
+    Args:
+        message_id: Gmail message ID
+    
+    Returns:
+        Message dictionary or None
+    """
+    client = GmailClient()
+    return client.get_message(message_id)
+
+
+def get_gmail_messages_with_client(client_email: str, max_results: int = 10) -> List[Dict[str, Any]]:
+    """
+    Get email messages with a specific client.
+    
+    Args:
+        client_email: Client's email address
+        max_results: Maximum number of results
+    
+    Returns:
+        List of message dictionaries
+    """
+    client = GmailClient()
+    return client.get_messages_with_client(client_email, max_results)
+
+
+def extract_gmail_message_text(message: Dict[str, Any]) -> str:
+    """
+    Extract plain text from a Gmail message.
+    
+    Args:
+        message: Gmail message dictionary
+    
+    Returns:
+        Plain text content
+    """
+    client = GmailClient()
+    return client.extract_message_text(message)
+

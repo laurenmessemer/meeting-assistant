@@ -26,9 +26,10 @@ class OutputSynthesizer:
 Provide a helpful response. If the user is asking about meetings, briefs, summaries, or follow-ups, 
 guide them on how to use the assistant."""
             
-            return self.llm.generate(
-                prompt,
+            return self.llm.llm_chat(
+                prompt=prompt,
                 system_prompt=OUTPUT_SYNTHESIS_PROMPT,
+                response_format="text",
                 temperature=0.7,
             )
         

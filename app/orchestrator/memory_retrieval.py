@@ -21,10 +21,22 @@ class MemoryRetriever:
         context = {}
         
         if user_id:
-            # Get user-level memories
-            memories = self.memory.get_memory_entries(user_id, client_id=None)
+            # Get relevant memories based on intent and keywords
+            keywords = []
+            if extracted_info.get("client_name"):
+                keywords.append(extracted_info["client_name"])
+            if extracted_info.get("meeting_title"):
+                keywords.append(extracted_info["meeting_title"])
+            
+            memories = self.memory.get_relevant_memories(
+                user_id=user_id,
+                client_id=client_id,
+                intent=intent,
+                keywords=keywords if keywords else None,
+                limit=10
+            )
             context["user_memories"] = [
-                {"key": m.key, "value": m.value}
+                {"key": m.key, "value": m.value, "extra_data": m.extra_data}
                 for m in memories
             ]
         

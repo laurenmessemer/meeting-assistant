@@ -4,43 +4,22 @@ from datetime import datetime, timedelta, timezone, date
 from typing import List, Dict, Any, Optional
 from googleapiclient.discovery import build
 from app.integrations.google_auth import get_google_credentials
+from app.utils.date_utils import extract_event_datetime
 
 
 def _is_event_in_past(event: Dict[str, Any], now: datetime) -> bool:
     """Check if a calendar event has already occurred."""
-    event_start = event.get('start', {})
-    event_time_str = event_start.get('dateTime') or event_start.get('date')
+    event_time = extract_event_datetime(event)
     
-    if not event_time_str:
+    if not event_time:
         return False
     
-    try:
-        if 'T' in event_time_str:
-            # Has time component
-            # Remove 'Z' and parse
-            event_time_str_clean = event_time_str.replace('Z', '')
-            if '+' in event_time_str_clean or event_time_str_clean.count('-') > 2:
-                # Has timezone info
-                event_time = datetime.fromisoformat(event_time_str_clean.replace('Z', '+00:00'))
-            else:
-                # No timezone, assume UTC
-                event_time = datetime.fromisoformat(event_time_str_clean)
-                event_time = event_time.replace(tzinfo=timezone.utc)
-            
-            # Convert both to UTC for comparison
-            if event_time.tzinfo is None:
-                event_time = event_time.replace(tzinfo=timezone.utc)
-            if now.tzinfo is None:
-                now = now.replace(tzinfo=timezone.utc)
-            
-            return event_time < now
-        else:
-            # All-day event, check date only
-            event_date = datetime.fromisoformat(event_time_str).date()
-            return event_date < now.date()
-    except (ValueError, AttributeError, TypeError):
-        # If we can't parse, assume it's not in the past
-        return False
+    # Ensure now has timezone for comparison
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
+    
+    # event_time is already in UTC from extract_event_datetime
+    return event_time < now
 
 
 class GoogleCalendarClient:
@@ -284,68 +263,14 @@ class GoogleCalendarClient:
             # IMPORTANT: Google API returns events in ascending order (oldest first),
             # so we need to reverse sort to get most recent first
             def get_sort_key(event):
-                start = event.get('start', {})
-                date_time = start.get('dateTime') or start.get('date', '')
-                if not date_time:
+                dt = extract_event_datetime(event)
+                if not dt:
                     return datetime.min.replace(tzinfo=timezone.utc)  # Put events without dates at the end
                 
-                try:
-                    if 'T' in date_time:
-                        # Has time component - parse it with timezone handling
-                        # Handle timezone offset like -05:00 or +05:00
-                        if date_time.count('-') > 2 or '+' in date_time:
-                            # Has timezone offset
-                            try:
-                                dt = datetime.fromisoformat(date_time)
-                            except ValueError:
-                                # Try parsing without timezone first
-                                if '+' in date_time:
-                                    dt_str = date_time.split('+')[0]
-                                elif date_time.count('-') > 2:
-                                    # Find the last occurrence of '-' that's part of timezone
-                                    parts = date_time.rsplit('-', 2)
-                                    if len(parts) == 3 and ':' in parts[2]:
-                                        # Last part is timezone like "05:00"
-                                        dt_str = '-'.join(parts[:2])
-                                    else:
-                                        dt_str = date_time
-                                else:
-                                    dt_str = date_time
-                                dt = datetime.fromisoformat(dt_str.replace('Z', ''))
-                                # Add timezone if it was in original
-                                if '-05:00' in date_time or '-06:00' in date_time or '-07:00' in date_time or '-08:00' in date_time:
-                                    from datetime import timedelta
-                                    # Extract timezone offset
-                                    tz_part = date_time.split('-')[-1] if '-' in date_time[-6:] else None
-                                    if tz_part and ':' in tz_part:
-                                        hours, minutes = map(int, tz_part.split(':'))
-                                        offset = timedelta(hours=-hours, minutes=-minutes)
-                                        dt = dt.replace(tzinfo=timezone(offset))
-                        elif date_time.endswith('Z'):
-                            # UTC timezone
-                            dt = datetime.fromisoformat(date_time.replace('Z', ''))
-                            dt = dt.replace(tzinfo=timezone.utc)
-                        else:
-                            # No timezone, assume UTC
-                            dt = datetime.fromisoformat(date_time)
-                            dt = dt.replace(tzinfo=timezone.utc)
-                        
-                        # Convert to UTC for comparison (remove timezone for sorting)
-                        if dt.tzinfo:
-                            dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
-                        return dt
-                    else:
-                        # All-day event - just use date
-                        dt = datetime.fromisoformat(date_time)
-                        return dt
-                except (ValueError, AttributeError, TypeError) as e:
-                    # If parsing fails, use string comparison as fallback
-                    # But try to extract just the date part for better sorting
-                    try:
-                        date_part = date_time.split('T')[0] if 'T' in date_time else date_time
-                        return datetime.fromisoformat(date_part)
-                    except:
-                        return date_time or ''
+                # Convert to naive UTC datetime for sorting (remove timezone)
+                if dt.tzinfo:
+                    return dt.astimezone(timezone.utc).replace(tzinfo=None)
+                return dt
             
             # Sort by date (most recent first) - this ensures we get the latest meeting
             filtered_events.sort(key=get_sort_key, reverse=True)
@@ -445,37 +370,16 @@ class GoogleCalendarClient:
         """
         Parse the start datetime from a calendar event.
         Returns None if parsing fails.
+        Returns naive UTC datetime (timezone removed) for database compatibility.
         """
-        start = event.get('start', {})
-        date_time_str = start.get('dateTime') or start.get('date')
-        
-        if not date_time_str:
+        dt = extract_event_datetime(event)
+        if not dt:
             return None
         
-        try:
-            if 'T' in date_time_str:
-                # Has time component
-                if date_time_str.endswith('Z'):
-                    dt = datetime.fromisoformat(date_time_str.replace('Z', ''))
-                    dt = dt.replace(tzinfo=timezone.utc)
-                elif '+' in date_time_str or (date_time_str.count('-') > 2):
-                    # Has timezone offset
-                    dt = datetime.fromisoformat(date_time_str)
-                else:
-                    # No timezone, assume UTC
-                    dt = datetime.fromisoformat(date_time_str)
-                    dt = dt.replace(tzinfo=timezone.utc)
-                
-                # Normalize to UTC for comparison
-                if dt.tzinfo:
-                    dt = dt.astimezone(timezone.utc)
-                return dt.replace(tzinfo=None)  # Return naive UTC datetime
-            else:
-                # All-day event - use date only
-                dt = datetime.fromisoformat(date_time_str)
-                return dt
-        except (ValueError, AttributeError, TypeError):
-            return None
+        # Normalize to UTC and return naive datetime for database storage
+        if dt.tzinfo:
+            dt = dt.astimezone(timezone.utc)
+        return dt.replace(tzinfo=None)  # Return naive UTC datetime
     
     def get_most_recent_past_event(self, days_back: int = 180) -> Optional[Dict[str, Any]]:
         """
@@ -718,4 +622,107 @@ class GoogleCalendarClient:
             return None
         except Exception as e:
             raise Exception(f"Error fetching next upcoming event by keyword: {str(e)}")
+
+
+# Simple function wrappers - no business logic, just API calls
+def get_calendar_event_by_id(event_id: str) -> Optional[Dict[str, Any]]:
+    """
+    Get a calendar event by ID.
+    
+    Args:
+        event_id: Google Calendar event ID
+    
+    Returns:
+        Event dictionary or None
+    """
+    client = GoogleCalendarClient()
+    return client.get_event_by_id(event_id)
+
+
+def get_calendar_events_on_date(target_date: date) -> List[Dict[str, Any]]:
+    """
+    Get all calendar events on a specific date.
+    
+    Args:
+        target_date: Date to get events for
+    
+    Returns:
+        List of event dictionaries
+    """
+    client = GoogleCalendarClient()
+    return client.get_events_on_date(target_date)
+
+
+def get_calendar_events_by_time_range(start_time: datetime, end_time: datetime) -> List[Dict[str, Any]]:
+    """
+    Get calendar events within a time range.
+    
+    Args:
+        start_time: Start of time range
+        end_time: End of time range
+    
+    Returns:
+        List of event dictionaries
+    """
+    client = GoogleCalendarClient()
+    return client.get_events_by_time_range(start_time, end_time)
+
+
+def extract_zoom_meeting_id_from_event(event: Dict[str, Any]) -> Optional[str]:
+    """
+    Extract Zoom meeting ID from a calendar event.
+    
+    Args:
+        event: Calendar event dictionary
+    
+    Returns:
+        Zoom meeting ID or None
+    """
+    client = GoogleCalendarClient()
+    return client.extract_zoom_meeting_id(event)
+
+
+def get_calendar_event_attendees(event_id: str) -> List[Dict[str, Any]]:
+    """
+    Get attendees for a calendar event.
+    
+    Args:
+        event_id: Google Calendar event ID
+    
+    Returns:
+        List of attendee dictionaries
+    """
+    client = GoogleCalendarClient()
+    return client.get_event_attendees(event_id)
+
+
+def search_calendar_events_by_keyword(
+    keyword: str,
+    max_results: int = 10,
+    include_past: bool = True,
+    include_future: bool = True,
+    days_back: int = 30,
+    days_forward: int = 30,
+    past_only: bool = False
+) -> List[Dict[str, Any]]:
+    """
+    Search for calendar events containing a keyword.
+    
+    Args:
+        keyword: Keyword to search for
+        max_results: Maximum number of results
+        include_past: Whether to search past events
+        include_future: Whether to search future events
+        days_back: Number of days back to search
+        days_forward: Number of days forward to search
+        past_only: If True, only return past events
+    
+    Returns:
+        List of event dictionaries
+    """
+    client = GoogleCalendarClient()
+    return client.search_events_by_keyword(
+        keyword, max_results, include_past, include_future,
+        days_back, days_forward, past_only
+    )
 

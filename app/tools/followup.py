@@ -2,82 +2,94 @@
 
 from typing import Dict, Any, Optional
 from app.llm.gemini_client import GeminiClient
-from app.memory.repo import MemoryRepository
-from app.integrations.zoom_client import ZoomClient
+from app.llm.prompts import SUMMARIZATION_TOOL_PROMPT
 
 
 class FollowUpTool:
     """Tool for generating follow-up emails."""
     
-    def __init__(self, llm_client: GeminiClient, memory_repo: MemoryRepository):
+    def __init__(self, llm_client: GeminiClient):
         self.llm = llm_client
-        self.memory = memory_repo
     
     async def generate_followup(
         self,
-        meeting_id: int = None,
-        client_id: int = None,
-        zoom_meeting_id: Optional[str] = None
+        meeting_summary: Optional[str] = None,
+        transcript: Optional[str] = None,
+        meeting_title: Optional[str] = None,
+        client_name: Optional[str] = None,
+        client_email: Optional[str] = None,
+        action_items: Optional[list] = None,
+        decisions: Optional[list] = None
     ) -> Dict[str, Any]:
         """
         Generate a follow-up email.
         
         Args:
-            meeting_id: Database meeting ID
-            client_id: Client ID
-            zoom_meeting_id: Optional Zoom meeting ID to fetch transcript if needed
+            meeting_summary: Summary of the meeting
+            transcript: Full meeting transcript (optional, for more context)
+            meeting_title: Meeting title
+            client_name: Client name
+            client_email: Client email address
+            action_items: List of action items from the meeting
+            decisions: List of decisions made in the meeting
+        
+        Returns:
+            Dictionary with email subject and body
         """
-        # Get meeting from database if meeting_id provided
-        meeting = None
-        transcript = None
+        # Build context for email generation
+        context_parts = []
         
-        if meeting_id:
-            meeting = self.memory.get_meeting_by_id(meeting_id)
-            if meeting:
-                transcript = meeting.transcript
+        if meeting_title:
+            context_parts.append(f"Meeting: {meeting_title}")
+        if client_name:
+            context_parts.append(f"Client: {client_name}")
+        if meeting_summary:
+            context_parts.append(f"\nMeeting Summary:\n{meeting_summary}")
+        if transcript:
+            context_parts.append(f"\nFull Transcript:\n{transcript}")
+        if action_items:
+            action_items_text = "\n".join([f"- {item}" for item in action_items])
+            context_parts.append(f"\nAction Items:\n{action_items_text}")
+        if decisions:
+            decisions_text = "\n".join([f"- {decision}" for decision in decisions])
+            context_parts.append(f"\nDecisions:\n{decisions_text}")
         
-        # If no transcript and zoom_meeting_id provided, try to fetch it
-        if not transcript and zoom_meeting_id:
-            try:
-                zoom_client = ZoomClient()
-                
-                # Try direct transcript endpoint first
-                print(f"   🔍 Fetching transcript for follow-up email...")
-                transcript = await zoom_client.get_meeting_transcript_direct(zoom_meeting_id)
-                
-                # If direct endpoint fails, try UUID-based approach
-                if not transcript:
-                    print(f"   ⚠️ Direct endpoint failed, trying UUID-based approach...")
-                    # Get UUID from meeting ID (most recent instance)
-                    meeting_uuid = await zoom_client.get_meeting_uuid_from_id(
-                        meeting_id=zoom_meeting_id,
-                        expected_date=None  # Get most recent
-                    )
-                    
-                    if meeting_uuid:
-                        print(f"   ✅ Found UUID, getting transcript...")
-                        transcript = await zoom_client.get_transcript_by_uuid(meeting_uuid)
-                        if transcript:
-                            print(f"   ✅ Retrieved transcript using UUID-based method (same as test_get_transcript_by_uuid.py)")
-                
-                # Final fallback: recordings-based approach
-                if not transcript:
-                    print(f"   ⚠️ UUID approach failed, trying recordings-based fallback...")
-                    transcript = await zoom_client.get_meeting_transcript_from_recordings(
-                        meeting_id=zoom_meeting_id,
-                        expected_date=None  # Use most recent recording
-                    )
-                    if transcript:
-                        print(f"   ✅ Retrieved transcript using recordings-based method")
-                
-            except Exception as e:
-                print(f"⚠️ Could not fetch transcript for follow-up: {e}")
-                import traceback
-                print(traceback.format_exc())
-        
-        # Placeholder implementation - would use transcript and meeting data to generate email
-        return {
-            "subject": "Follow-up email subject",
-            "body": "Follow-up email body would be generated here."
-        }
+        prompt = f"""Generate a professional follow-up email based on the meeting information below.
 
+{chr(10).join(context_parts) if context_parts else "No meeting information provided."}
+
+Please create a follow-up email that:
+1. Thanks the client for their time
+2. Summarizes key points discussed
+3. Lists action items and next steps
+4. Confirms any decisions made
+5. Sets expectations for follow-up
+
+The email should be professional, clear, and actionable. Respond in JSON format:
+{{
+    "subject": "Email subject line",
+    "body": "Email body text"
+}}"""
+        
+        email_data = self.llm.llm_chat(
+            prompt=prompt,
+            system_prompt=SUMMARIZATION_TOOL_PROMPT,
+            response_format="JSON",
+            temperature=0.7,
+        )
+        
+        # Ensure we have the expected structure
+        if isinstance(email_data, dict):
+            subject = email_data.get("subject", "Follow-up: Meeting Summary")
+            body = email_data.get("body", "Thank you for the meeting.")
+        else:
+            # Fallback if JSON parsing fails
+            subject = f"Follow-up: {meeting_title or 'Meeting Summary'}"
+            body = str(email_data) if email_data else "Thank you for the meeting."
+        
+        return {
+            "subject": subject,
+            "body": body,
+            "client_name": client_name,
+            "client_email": client_email
+        }

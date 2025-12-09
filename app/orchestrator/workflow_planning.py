@@ -28,8 +28,8 @@ Context: {context_info}
 Plan the workflow and respond in JSON format."""
         
         try:
-            result = self.llm.generate_structured(
-                prompt,
+            result = self.llm.llm_chat(
+                prompt=prompt,
                 system_prompt=WORKFLOW_PLANNING_PROMPT,
                 response_format="JSON",
                 temperature=0.4,

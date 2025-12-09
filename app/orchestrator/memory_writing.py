@@ -34,9 +34,22 @@ Assistant: {response}
 Extract information that should be remembered for future interactions.
 Respond in JSON format with key-value pairs."""
         
+        # Use save_interaction_memory to save the interaction
         try:
-            memory_data = self.llm.generate_structured(
-                prompt,
+            intent = tool_output.get("tool_name") if tool_output else None
+            self.memory.save_interaction_memory(
+                user_id=user_id,
+                client_id=client_id,
+                message=message,
+                response=response,
+                intent=intent,
+                tool_used=intent,
+                metadata={"response_length": len(response)}
+            )
+            
+            # Also extract structured memory if available
+            memory_data = self.llm.llm_chat(
+                prompt=prompt,
                 system_prompt=MEMORY_EXTRACTION_PROMPT,
                 response_format="JSON",
                 temperature=0.3,

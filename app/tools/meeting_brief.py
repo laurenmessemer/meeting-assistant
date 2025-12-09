@@ -2,22 +2,23 @@
 
 from typing import Dict, Any, Optional
 from app.llm.gemini_client import GeminiClient
-from app.memory.repo import MemoryRepository
-from app.integrations.zoom_client import ZoomClient
+from app.llm.prompts import SUMMARIZATION_TOOL_PROMPT
 
 
 class MeetingBriefTool:
     """Tool for generating meeting briefs."""
     
-    def __init__(self, llm_client: GeminiClient, memory_repo: MemoryRepository):
+    def __init__(self, llm_client: GeminiClient):
         self.llm = llm_client
-        self.memory = memory_repo
     
     async def generate_brief(
         self,
-        client_name: str = None,
-        meeting_title: str = None,
-        zoom_meeting_id: Optional[str] = None
+        client_name: Optional[str] = None,
+        meeting_title: Optional[str] = None,
+        meeting_date: Optional[str] = None,
+        attendees: Optional[str] = None,
+        previous_meeting_summary: Optional[str] = None,
+        client_context: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Generate a meeting brief.
@@ -25,52 +26,55 @@ class MeetingBriefTool:
         Args:
             client_name: Client name
             meeting_title: Meeting title
-            zoom_meeting_id: Optional Zoom meeting ID to fetch previous meeting transcript for context
-        """
-        # If zoom_meeting_id provided, could fetch previous meeting transcript for context
-        previous_transcript = None
-        if zoom_meeting_id:
-            try:
-                zoom_client = ZoomClient()
-                
-                # Try direct transcript endpoint first
-                print(f"   🔍 Fetching previous meeting transcript for context...")
-                previous_transcript = await zoom_client.get_meeting_transcript_direct(zoom_meeting_id)
-                
-                # If direct endpoint fails, try UUID-based approach
-                if not previous_transcript:
-                    print(f"   ⚠️ Direct endpoint failed, trying UUID-based approach...")
-                    # Get UUID from meeting ID (most recent instance)
-                    meeting_uuid = await zoom_client.get_meeting_uuid_from_id(
-                        meeting_id=zoom_meeting_id,
-                        expected_date=None  # Get most recent
-                    )
-                    
-                    if meeting_uuid:
-                        print(f"   ✅ Found UUID, getting transcript...")
-                        previous_transcript = await zoom_client.get_transcript_by_uuid(meeting_uuid)
-                        if previous_transcript:
-                            print(f"   ✅ Retrieved transcript using UUID-based method (same as test_get_transcript_by_uuid.py)")
-                
-                # Final fallback: recordings-based approach
-                if not previous_transcript:
-                    print(f"   ⚠️ UUID approach failed, trying recordings-based fallback...")
-                    previous_transcript = await zoom_client.get_meeting_transcript_from_recordings(
-                        meeting_id=zoom_meeting_id,
-                        expected_date=None  # Use most recent recording
-                    )
-                    if previous_transcript:
-                        print(f"   ✅ Retrieved transcript using recordings-based method")
-                
-            except Exception as e:
-                print(f"⚠️ Could not fetch previous meeting transcript for brief: {e}")
-                import traceback
-                print(traceback.format_exc())
+            meeting_date: Meeting date/time
+            attendees: Comma-separated list of attendees
+            previous_meeting_summary: Optional summary of previous meeting for context
+            client_context: Optional client context/information
         
-        # Placeholder implementation - would use client data, previous meetings, etc.
-        return {
-            "brief": "Meeting brief would be generated here.",
-            "client_name": client_name,
-            "meeting_title": meeting_title
-        }
+        Returns:
+            Dictionary with brief content
+        """
+        # Build prompt for meeting brief
+        context_parts = []
+        
+        if client_name:
+            context_parts.append(f"Client: {client_name}")
+        if meeting_title:
+            context_parts.append(f"Meeting Title: {meeting_title}")
+        if meeting_date:
+            context_parts.append(f"Meeting Date: {meeting_date}")
+        if attendees:
+            context_parts.append(f"Attendees: {attendees}")
+        if client_context:
+            context_parts.append(f"\nClient Context:\n{client_context}")
+        if previous_meeting_summary:
+            context_parts.append(f"\nPrevious Meeting Summary:\n{previous_meeting_summary}")
+        
+        prompt = f"""Generate a comprehensive meeting brief to help prepare for an upcoming meeting.
 
+Meeting Information:
+{chr(10).join(context_parts) if context_parts else "No specific meeting information provided."}
+
+Please create a meeting brief that includes:
+1. Key topics to discuss
+2. Important context about the client
+3. Questions to ask
+4. Goals and objectives
+5. Any relevant background information
+
+Format the brief in a clear, organized structure that will help prepare for the meeting."""
+        
+        brief_text = self.llm.llm_chat(
+            prompt=prompt,
+            system_prompt=SUMMARIZATION_TOOL_PROMPT,
+            response_format="text",
+            temperature=0.7,
+        )
+        
+        return {
+            "brief": brief_text,
+            "client_name": client_name,
+            "meeting_title": meeting_title,
+            "meeting_date": meeting_date,
+            "attendees": attendees
+        }

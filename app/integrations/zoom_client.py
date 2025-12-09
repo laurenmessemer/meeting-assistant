@@ -8,6 +8,7 @@ import urllib.parse
 from app.config import settings
 import base64
 import json
+from app.utils.date_utils import parse_iso_datetime
 
 
 class ZoomClient:
@@ -126,15 +127,9 @@ class ZoomClient:
                     
                     try:
                         # Parse and normalize instance date to UTC
-                        if 'Z' in instance_start_time:
-                            instance_dt = datetime.fromisoformat(instance_start_time.replace('Z', '+00:00'))
-                        else:
-                            instance_dt = datetime.fromisoformat(instance_start_time)
-                        
-                        if instance_dt.tzinfo is None:
-                            instance_dt = instance_dt.replace(tzinfo=timezone.utc)
-                        else:
-                            instance_dt = instance_dt.astimezone(timezone.utc)
+                        instance_dt = parse_iso_datetime(instance_start_time)
+                        if not instance_dt:
+                            continue
                         
                         # Calculate time difference if expected_date provided
                         time_diff = None
@@ -216,16 +211,9 @@ class ZoomClient:
                     
                     try:
                         # Parse and normalize instance date to UTC
-                        if 'Z' in instance_start_time:
-                            instance_dt = datetime.fromisoformat(instance_start_time.replace('Z', '+00:00'))
-                        else:
-                            instance_dt = datetime.fromisoformat(instance_start_time)
-                        
-                        # Normalize to UTC
-                        if instance_dt.tzinfo is None:
-                            instance_dt = instance_dt.replace(tzinfo=timezone.utc)
-                        else:
-                            instance_dt = instance_dt.astimezone(timezone.utc)
+                        instance_dt = parse_iso_datetime(instance_start_time)
+                        if not instance_dt:
+                            continue
                         
                         # Track most recent instance
                         if most_recent_dt is None or instance_dt > most_recent_dt:
@@ -571,15 +559,9 @@ class ZoomClient:
                         start_time_str = meeting_info.get("start_time", "")
                         if start_time_str:
                             try:
-                                if 'Z' in start_time_str:
-                                    recording_dt = datetime.fromisoformat(start_time_str.replace('Z', '+00:00'))
-                                else:
-                                    recording_dt = datetime.fromisoformat(start_time_str)
-                                
-                                if recording_dt.tzinfo is None:
-                                    recording_dt = recording_dt.replace(tzinfo=timezone.utc)
-                                else:
-                                    recording_dt = recording_dt.astimezone(timezone.utc)
+                                recording_dt = parse_iso_datetime(start_time_str)
+                                if not recording_dt:
+                                    continue
                                 
                                 # Calculate time difference in days
                                 time_diff_days = abs((recording_dt - expected_date).total_seconds()) / (24 * 3600)
@@ -890,3 +872,51 @@ class ZoomClient:
             text_lines.append(line)
         
         return '\n'.join(text_lines).strip()
+
+
+# Simple function wrappers - no business logic, just API calls
+async def get_zoom_transcript_by_meeting_id(meeting_id: str, expected_date: Optional[datetime] = None) -> Optional[str]:
+    """
+    Get transcript for a Zoom meeting by meeting ID.
+    
+    Args:
+        meeting_id: Zoom meeting ID
+        expected_date: Optional expected date/time for matching
+    
+    Returns:
+        Transcript text or None
+    """
+    client = ZoomClient()
+    uuid = await client.get_meeting_uuid_from_id(meeting_id, expected_date)
+    if uuid:
+        return await client.get_transcript_by_uuid(uuid)
+    return None
+
+
+async def get_zoom_transcript_by_uuid(meeting_uuid: str) -> Optional[str]:
+    """
+    Get transcript for a Zoom meeting by UUID.
+    
+    Args:
+        meeting_uuid: Zoom meeting UUID
+    
+    Returns:
+        Transcript text or None
+    """
+    client = ZoomClient()
+    return await client.get_transcript_by_uuid(meeting_uuid)
+
+
+async def get_zoom_meeting_uuid(meeting_id: str, expected_date: Optional[datetime] = None) -> Optional[str]:
+    """
+    Get UUID for a Zoom meeting by meeting ID.
+    
+    Args:
+        meeting_id: Zoom meeting ID
+        expected_date: Optional expected date/time for matching
+    
+    Returns:
+        Meeting UUID or None
+    """
+    client = ZoomClient()
+    return await client.get_meeting_uuid_from_id(meeting_id, expected_date)

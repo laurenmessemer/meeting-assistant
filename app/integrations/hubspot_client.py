@@ -152,3 +152,61 @@ class HubSpotClient:
             except httpx.HTTPError as e:
                 raise Exception(f"Error searching contacts in HubSpot: {str(e)}")
 
+
+# Simple function wrappers - no business logic, just API calls
+async def get_hubspot_contact_by_email(email: str) -> Optional[Dict[str, Any]]:
+    """
+    Get HubSpot contact by email.
+    
+    Args:
+        email: Contact email address
+    
+    Returns:
+        Contact dictionary or None
+    """
+    client = HubSpotClient()
+    return await client.get_contact_by_email(email)
+
+
+async def get_hubspot_contact_by_id(contact_id: str) -> Optional[Dict[str, Any]]:
+    """
+    Get HubSpot contact by ID.
+    
+    Args:
+        contact_id: HubSpot contact ID
+    
+    Returns:
+        Contact dictionary or None
+    """
+    client = HubSpotClient()
+    return await client.get_contact_by_id(contact_id)
+
+
+async def get_hubspot_deals_for_contact(contact_id: str) -> List[Dict[str, Any]]:
+    """
+    Get deals for a HubSpot contact.
+    
+    Args:
+        contact_id: HubSpot contact ID
+    
+    Returns:
+        List of deal dictionaries
+    """
+    client = HubSpotClient()
+    return await client.get_deals_for_contact(contact_id)
+
+
+async def search_hubspot_contacts(query: str, limit: int = 10) -> List[Dict[str, Any]]:
+    """
+    Search for HubSpot contacts.
+    
+    Args:
+        query: Search query
+        limit: Maximum number of results
+    
+    Returns:
+        List of contact dictionaries
+    """
+    client = HubSpotClient()
+    return await client.search_contacts(query, limit)
+
