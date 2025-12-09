@@ -665,8 +665,28 @@ class ToolExecutor:
                 "error": result["error"]
             }
         
-        # Store decisions in memory if we have a meeting
+        # Validate meeting_id exists in database before using it
         meeting_id = integration_data.get("meeting_id")
+        if meeting_id:
+            # Validate and cast meeting_id to integer
+            if not isinstance(meeting_id, int):
+                try:
+                    meeting_id = int(meeting_id)
+                except (ValueError, TypeError):
+                    return {
+                        "tool_name": "summarization",
+                        "error": "Invalid meeting_id format"
+                    }
+            
+            # Now meeting_id is guaranteed to be an integer, validate it exists in database
+            meeting = self.memory.get_meeting_by_id(meeting_id)
+            if meeting is None:
+                return {
+                    "tool_name": "summarization",
+                    "error": f"Meeting ID {meeting_id} does not exist in database"
+                }
+        
+        # Store decisions in memory if we have a meeting
         if meeting_id and result.get("decisions") and client_id:
             decisions_to_save = []
             for decision_data in result.get("decisions", []):
