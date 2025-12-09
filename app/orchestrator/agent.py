@@ -274,6 +274,11 @@ class AgentOrchestrator:
                     client_id,
                     context
                 )
+                # TEMPORARY DEBUG: Log integration_data.meeting_id
+                print(f"[AGENT DEBUG] integration_data.meeting_id = {integration_data.get('meeting_id')}")
+                print(f"[AGENT DEBUG] integration_data.has_structured_data = {bool(integration_data.get('structured_data'))}")
+                print(f"[AGENT DEBUG] user_id passed to prepare_integration_data = {user_id}")
+                
                 step_duration = (datetime.utcnow() - step_start).total_seconds() * 1000
                 
                 self.logger.info(
@@ -289,7 +294,10 @@ class AgentOrchestrator:
                     intermediate_outputs["integration_data"] = {
                         "has_meeting_id": integration_data.get("meeting_id") is not None,
                         "has_structured_data": integration_data.get("structured_data") is not None,
-                        "has_error": "error" in integration_data
+                        "has_error": "error" in integration_data,
+                        "meeting_id": integration_data.get("meeting_id"),
+                        "structured_data": integration_data.get("structured_data"),
+                        "full_data": integration_data
                     }
             except Exception as e:
                 self.logger.error(

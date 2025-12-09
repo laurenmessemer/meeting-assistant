@@ -210,44 +210,112 @@ class ToolExecutor:
         user_id: Optional[int],
         client_id: Optional[int]
     ) -> Dict[str, Any]:
-        """Prepare data for followup tool."""
+        """Prepare data for followup tool using reusable pipeline pattern."""
+        # TEMPORARY DEBUG: Log user_id received
+        print(f"[FOLLOWUP DEBUG] user_id = {user_id}")
+        print(f"[FOLLOWUP DEBUG] client_id = {client_id}")
+        print(f"[FOLLOWUP DEBUG] prepared_data = {prepared_data}")
+        
         meeting_id = prepared_data.get("meeting_id")
+        client_name = prepared_data.get("client_name")
         
         result = {
             "structured_data": {}
         }
         
-        # If no meeting_id and we have client_id, get most recent meeting
-        if not meeting_id and client_id:
-            meetings = self.memory.get_meetings_by_client(client_id, limit=5)
-            completed_meetings = [m for m in meetings if m.status == "completed"]
-            if completed_meetings:
-                meeting_id = completed_meetings[0].id
-        
-        # Get meeting from database
+        # Step 1: If meeting_id provided, fetch meeting from database
         if meeting_id:
             meeting = self.memory.get_meeting_by_id(meeting_id)
             if meeting:
-                client_name = None
-                if meeting.client_id:
-                    client = self.memory.get_client_by_id(meeting.client_id)
-                    if client:
-                        client_name = client.name
-                
-                # Get decisions
-                db_decisions = self.memory.get_decisions_by_meeting_id(meeting_id)
-                decisions = [{"description": d.description, "context": d.context} for d in db_decisions]
-                
-                result["structured_data"] = {
-                    "meeting_summary": meeting.summary,
-                    "transcript": meeting.transcript,
-                    "meeting_title": meeting.title,
-                    "client_name": client_name,
-                    "action_items": [],
-                    "decisions": decisions
-                }
+                # Build structured_data from meeting
+                result["structured_data"] = self._build_followup_structured_data(
+                    meeting, client_id, user_id
+                )
+                return result
+        
+        # Step 2: If NO meeting_id but client_id exists, use MeetingFinder
+        if not meeting_id and client_id:
+            meeting_finder = MeetingFinder(self.db, self.memory)
+            meeting_id = meeting_finder.find_meeting_in_database(
+                meeting_id=None,
+                client_id=client_id,
+                user_id=user_id,
+                client_name=client_name
+            )
+        
+        # Step 2b: Fallback - If NO meeting_id and NO client_id, try finding by user_id
+        if not meeting_id and client_id is None and user_id:
+            print("[FOLLOWUP DEBUG] Step 2b triggered - searching by user_id fallback")
+            meeting_finder = MeetingFinder(self.db, self.memory)
+            meeting_id = meeting_finder.find_meeting_in_database(
+                meeting_id=None,
+                client_id=None,
+                user_id=user_id,
+                client_name=None
+            )
+            print(f"[FOLLOWUP DEBUG] Step 2b result: meeting_id = {meeting_id}")
+        else:
+            print(f"[FOLLOWUP DEBUG] Step 2b NOT triggered: meeting_id={meeting_id}, client_id={client_id}, user_id={user_id}")
+        
+        # Step 3: If we now have a meeting_id, get data from database
+        if meeting_id:
+            meeting = self.memory.get_meeting_by_id(meeting_id)
+            if meeting:
+                result["structured_data"] = self._build_followup_structured_data(
+                    meeting, client_id, user_id
+                )
+        
+        # TEMPORARY DEBUG: Log final result
+        print(f"[FOLLOWUP DEBUG] Final result: meeting_id in result = {result.get('meeting_id')}, has_structured_data = {bool(result.get('structured_data'))}")
+        result["meeting_id"] = meeting_id  # TEMPORARY: Add meeting_id for debug visibility
+        print(f"[FOLLOWUP DEBUG] After adding meeting_id: result.meeting_id = {result.get('meeting_id')}")
         
         return result
+    
+    def _build_followup_structured_data(
+        self,
+        meeting,
+        client_id: Optional[int],
+        user_id: Optional[int]
+    ) -> Dict[str, Any]:
+        """Build structured_data dict for followup tool from meeting object."""
+        # Get client information
+        client_name = None
+        client_email = None
+        if meeting.client_id:
+            client = self.memory.get_client_by_id(meeting.client_id)
+            if client:
+                client_name = client.name
+                client_email = client.email
+        elif client_id:
+            # Fallback to provided client_id
+            client = self.memory.get_client_by_id(client_id)
+            if client:
+                client_name = client.name
+                client_email = client.email
+        
+        # Get decisions using memory repository
+        db_decisions = self.memory.get_decisions_by_meeting_id(meeting.id)
+        decisions = [
+            {"description": d.description, "context": d.context}
+            for d in db_decisions
+        ]
+        
+        # Format meeting date using utility function
+        meeting_date = format_datetime_display(meeting.scheduled_time)
+        
+        # Build structured_data using same pattern as summarization
+        return {
+            "meeting_summary": meeting.summary,
+            "transcript": meeting.transcript,
+            "meeting_title": meeting.title,
+            "meeting_date": meeting_date,
+            "client_name": client_name,
+            "client_email": client_email,
+            "attendees": meeting.attendees,
+            "action_items": [],  # Can be populated from summary parsing if needed
+            "decisions": decisions
+        }
     
     async def execute(
         self,

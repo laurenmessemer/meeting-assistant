@@ -20,6 +20,8 @@ from app.utils.date_utils import (
     format_datetime_display
 )
 from app.utils.calendar_utils import extract_attendees
+from app.orchestrator.client_detection.client_inference import ClientInferenceService
+from app.llm.gemini_client import GeminiClient
 
 
 class IntegrationDataFetcher:
@@ -91,8 +93,12 @@ class IntegrationDataFetcher:
             print(f"Error extracting Zoom meeting ID: {e}")
             zoom_meeting_id = None
         
-        # Extract attendees
+        # Extract attendees (for display as string and for database as list)
         attendees_str = extract_attendees(calendar_event)
+        # Convert attendees string to list for MeetingCreate schema
+        attendees_list = None
+        if attendees_str and attendees_str != "Not specified":
+            attendees_list = [name.strip() for name in attendees_str.split(",") if name.strip()]
         
         formatted_date = format_datetime_display(event_date)
         
@@ -111,9 +117,10 @@ class IntegrationDataFetcher:
         # Fetch transcript from Zoom
         transcript = await self.fetch_zoom_transcript(zoom_meeting_id, event_date)
         
-        # Create meeting in database if transcript found
+        # Create meeting in database (even if no transcript found)
+        # This allows summaries and decisions to be saved later
         meeting_id = None
-        if transcript:
+        if zoom_meeting_id:
             try:
                 # Parse the datetime and remove timezone for database storage
                 scheduled_time_dt = parse_iso_datetime(start_time_str) if start_time_str else None
@@ -124,6 +131,15 @@ class IntegrationDataFetcher:
             except (ValueError, AttributeError):
                 scheduled_time = datetime.utcnow()
             
+            # Infer client_id if not provided
+            if client_id is None:
+                client_inference = ClientInferenceService(self.memory, GeminiClient())
+                client_id = client_inference.infer_client_id(
+                    meeting_title=event_title,
+                    attendees=attendees_list,
+                    user_id=user_id
+                )
+            
             meeting_data = MeetingCreate(
                 user_id=user_id or 1,
                 client_id=client_id,
@@ -131,8 +147,9 @@ class IntegrationDataFetcher:
                 zoom_meeting_id=zoom_meeting_id,
                 title=event_title,
                 scheduled_time=scheduled_time,
-                transcript=transcript,
-                status="completed"
+                transcript=transcript,  # Can be None if not found
+                status="completed",
+                attendees=attendees_list  # List format for database
             )
             
             db_meeting = self.memory.create_meeting(meeting_data)

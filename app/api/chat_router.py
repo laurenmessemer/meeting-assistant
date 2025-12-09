@@ -53,6 +53,10 @@ async def chat(
         debug: If True, include intermediate outputs in response (development only)
     """
     try:
+        # TEMPORARY DEBUG: Log received user_id
+        print(f"[FASTAPI DEBUG] Received chat_message.user_id = {chat_message.user_id}")
+        print(f"[FASTAPI DEBUG] Full chat_message: message={chat_message.message}, user_id={chat_message.user_id}, client_id={chat_message.client_id}, selected_meeting_id={chat_message.selected_meeting_id}, selected_calendar_event_id={chat_message.selected_calendar_event_id}")
+        
         orchestrator = AgentOrchestrator(db)
         
         result = await orchestrator.process_message(

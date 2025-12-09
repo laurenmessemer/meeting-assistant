@@ -144,6 +144,15 @@ async def get_ui():
             border-bottom-left-radius: 4px;
         }
         
+        .message.assistant {
+            align-items: stretch;
+        }
+        
+        .message.assistant .assistant-card {
+            width: 100%;
+            max-width: 100%;
+        }
+        
         .input-container {
             padding: 16px 20px 20px;
             background: rgba(255, 255, 255, 0.6);
@@ -387,6 +396,175 @@ async def get_ui():
             margin: 6px 0;
             letter-spacing: -0.05px;
         }
+        
+        /* macOS-style Assistant Card */
+        .assistant-card {
+            background: #ffffff;
+            border-radius: 16px;
+            box-shadow: 0 2px 16px rgba(0, 0, 0, 0.08), 0 1px 0 rgba(255, 255, 255, 0.8) inset;
+            border: 0.5px solid rgba(0, 0, 0, 0.08);
+            padding: 24px 28px;
+            margin: 0;
+            max-width: 100%;
+            overflow: hidden;
+            transition: box-shadow 0.2s ease;
+        }
+        
+        .assistant-card:hover {
+            box-shadow: 0 4px 24px rgba(0, 0, 0, 0.12), 0 1px 0 rgba(255, 255, 255, 0.8) inset;
+        }
+        
+        .assistant-card-header {
+            font-size: 24px;
+            font-weight: 600;
+            color: #1d1d1f;
+            margin: 0 0 20px 0;
+            padding-bottom: 16px;
+            border-bottom: 0.5px solid rgba(0, 0, 0, 0.1);
+            letter-spacing: -0.5px;
+        }
+        
+        .assistant-card-section {
+            margin-bottom: 24px;
+            padding-bottom: 20px;
+        }
+        
+        .assistant-card-section:last-child {
+            margin-bottom: 0;
+            padding-bottom: 0;
+        }
+        
+        .assistant-card-divider {
+            height: 0.5px;
+            background: rgba(0, 0, 0, 0.08);
+            margin: 24px 0;
+            border: none;
+        }
+        
+        .assistant-card h2 {
+            font-size: 20px;
+            font-weight: 600;
+            color: #1d1d1f;
+            margin: 0 0 16px 0;
+            letter-spacing: -0.4px;
+        }
+        
+        .assistant-card h3 {
+            font-size: 17px;
+            font-weight: 590;
+            color: #1d1d1f;
+            margin: 20px 0 12px 0;
+            letter-spacing: -0.3px;
+        }
+        
+        .assistant-card h4 {
+            font-size: 15px;
+            font-weight: 590;
+            color: #424245;
+            margin: 16px 0 8px 0;
+            letter-spacing: -0.2px;
+        }
+        
+        .assistant-card p {
+            margin: 12px 0;
+            line-height: 1.6;
+            color: #424245;
+            font-size: 15px;
+            letter-spacing: -0.1px;
+        }
+        
+        .assistant-card ul,
+        .assistant-card ol {
+            margin: 12px 0;
+            padding-left: 24px;
+        }
+        
+        .assistant-card li {
+            margin: 8px 0;
+            line-height: 1.6;
+            color: #424245;
+        }
+        
+        /* Follow-up Email Styling */
+        .followup-email {
+            background: #ffffff;
+        }
+        
+        .followup-subject {
+            font-size: 20px;
+            font-weight: 600;
+            color: #1d1d1f;
+            margin: 0 0 20px 0;
+            padding-bottom: 16px;
+            border-bottom: 0.5px solid rgba(0, 0, 0, 0.1);
+            letter-spacing: -0.4px;
+        }
+        
+        .followup-body {
+            line-height: 1.7;
+            color: #424245;
+            font-size: 15px;
+        }
+        
+        .followup-body p {
+            margin: 14px 0;
+        }
+        
+        .followup-signature {
+            margin-top: 24px;
+            padding-top: 20px;
+            border-top: 0.5px solid rgba(0, 0, 0, 0.08);
+            color: #86868b;
+            font-size: 14px;
+        }
+        
+        /* Enhanced Action Items in Cards */
+        .assistant-card .action-items-group {
+            margin: 20px 0;
+            padding: 18px 20px;
+            background: rgba(0, 0, 0, 0.02);
+            border-radius: 12px;
+            border: 0.5px solid rgba(0, 0, 0, 0.06);
+        }
+        
+        .assistant-card .action-item {
+            padding: 10px 0;
+            border-bottom: 0.5px solid rgba(0, 0, 0, 0.06);
+        }
+        
+        .assistant-card .action-item:last-child {
+            border-bottom: none;
+        }
+        
+        /* Decisions Styling */
+        .decisions-list {
+            margin: 16px 0;
+            padding: 16px 20px;
+            background: rgba(0, 122, 255, 0.03);
+            border-radius: 12px;
+            border: 0.5px solid rgba(0, 122, 255, 0.1);
+        }
+        
+        .decision-item {
+            padding: 10px 0;
+            border-bottom: 0.5px solid rgba(0, 122, 255, 0.08);
+        }
+        
+        .decision-item:last-child {
+            border-bottom: none;
+        }
+        
+        .decision-description {
+            font-weight: 590;
+            color: #1d1d1f;
+            margin-bottom: 4px;
+        }
+        
+        .decision-context {
+            font-size: 14px;
+            color: #86868b;
+            font-style: italic;
+        }
     </style>
 </head>
 <body>
@@ -418,6 +596,10 @@ async def get_ui():
                 return text; // Not structured, return as-is
             }
             
+            // Create card container
+            const card = document.createElement('div');
+            card.className = 'assistant-card';
+            
             // Create container for structured summary
             const container = document.createElement('div');
             container.className = 'summary-container';
@@ -439,8 +621,8 @@ async def get_ui():
                 // Check for main header (# Meeting Header)
                 if (trimmed.startsWith('# ') && !trimmed.startsWith('##') && !foundHeader) {
                     const headerText = trimmed.substring(2).trim();
-                    const header = document.createElement('div');
-                    header.className = 'summary-header';
+                    const header = document.createElement('h2');
+                    header.className = 'assistant-card-header';
                     header.textContent = headerText;
                     container.appendChild(header);
                     foundHeader = true;
@@ -455,12 +637,18 @@ async def get_ui():
                         currentSection.appendChild(contentDiv);
                     }
                     
+                    // Add divider before new section (except first)
+                    if (currentSection && container.children.length > 0) {
+                        const divider = document.createElement('hr');
+                        divider.className = 'assistant-card-divider';
+                        container.appendChild(divider);
+                    }
+                    
                     // Create new section
                     currentSection = document.createElement('div');
-                    currentSection.className = 'summary-section';
+                    currentSection.className = 'assistant-card-section';
                     
-                    const sectionTitle = document.createElement('div');
-                    sectionTitle.className = 'summary-section-title';
+                    const sectionTitle = document.createElement('h3');
                     const titleText = trimmed.substring(3).replace(':', '').trim();
                     sectionTitle.textContent = titleText;
                     currentSection.appendChild(sectionTitle);
@@ -483,7 +671,114 @@ async def get_ui():
                 currentSection.appendChild(contentDiv);
             }
             
-            return container;
+            card.appendChild(container);
+            return card;
+        }
+        
+        function formatFollowupEmail(data) {
+            // Check if this is a follow-up email response
+            if (typeof data === 'string') {
+                // Try to parse if it's JSON string
+                try {
+                    data = JSON.parse(data);
+                } catch (e) {
+                    // Not JSON, might be plain text response
+                    if (data.includes('Subject:') || data.includes('Follow-up:')) {
+                        return formatFollowupText(data);
+                    }
+                    return null;
+                }
+            }
+            
+            if (!data || (!data.subject && !data.body)) {
+                return null;
+            }
+            
+            const card = document.createElement('div');
+            card.className = 'assistant-card followup-email';
+            
+            // Subject
+            if (data.subject) {
+                const subject = document.createElement('h2');
+                subject.className = 'followup-subject';
+                subject.textContent = data.subject;
+                card.appendChild(subject);
+            }
+            
+            // Body
+            if (data.body) {
+                const bodyDiv = document.createElement('div');
+                bodyDiv.className = 'followup-body';
+                
+                // Split body into paragraphs
+                const paragraphs = data.body.split('\\n\\n').filter(p => p.trim());
+                paragraphs.forEach(para => {
+                    const trimmed = para.trim();
+                    if (!trimmed) return;
+                    
+                    // Check if it's a list or formatted section
+                    if (trimmed.startsWith('**') || trimmed.startsWith('*') || trimmed.match(/^\d+\./)) {
+                        const p = document.createElement('p');
+                        p.innerHTML = formatContent(trimmed);
+                        bodyDiv.appendChild(p);
+                    } else {
+                        const p = document.createElement('p');
+                        p.textContent = trimmed;
+                        bodyDiv.appendChild(p);
+                    }
+                });
+                
+                card.appendChild(bodyDiv);
+            }
+            
+            // Signature (if client_name or client_email present)
+            if (data.client_name || data.client_email) {
+                const signature = document.createElement('div');
+                signature.className = 'followup-signature';
+                if (data.client_name) {
+                    signature.textContent = data.client_name;
+                }
+                if (data.client_email) {
+                    signature.textContent += (data.client_name ? ' <' : '') + data.client_email + (data.client_name ? '>' : '');
+                }
+                card.appendChild(signature);
+            }
+            
+            return card;
+        }
+        
+        function formatFollowupText(text) {
+            // Handle plain text follow-up responses
+            const card = document.createElement('div');
+            card.className = 'assistant-card followup-email';
+            
+            const lines = text.split('\\n');
+            let subjectFound = false;
+            let bodyStarted = false;
+            const bodyLines = [];
+            
+            for (let i = 0; i < lines.length; i++) {
+                const line = lines[i].trim();
+                if (line.startsWith('Subject:') && !subjectFound) {
+                    const subject = document.createElement('h2');
+                    subject.className = 'followup-subject';
+                    subject.textContent = line.replace('Subject:', '').trim();
+                    card.appendChild(subject);
+                    subjectFound = true;
+                } else if (line && (subjectFound || bodyStarted)) {
+                    bodyLines.push(line);
+                    bodyStarted = true;
+                }
+            }
+            
+            if (bodyLines.length > 0) {
+                const bodyDiv = document.createElement('div');
+                bodyDiv.className = 'followup-body';
+                bodyDiv.innerHTML = formatContent(bodyLines.join('\\n'));
+                card.appendChild(bodyDiv);
+            }
+            
+            return card;
         }
         
         function formatContent(content) {
@@ -494,6 +789,7 @@ async def get_ui():
             let html = '';
             let inList = false;
             let inActionGroup = false;
+            let inDecisionsList = false;
             
             for (let i = 0; i < lines.length; i++) {
                 const line = lines[i];
@@ -508,17 +804,57 @@ async def get_ui():
                     continue;
                 }
                 
-                // Check for action items group header
-                if (trimmed.includes('### Action Items for')) {
+                // Check for decisions section
+                if (trimmed.includes('Decisions Made:') || trimmed.includes('Key Decisions:')) {
                     if (inList) {
                         html += '</ul>';
                         inList = false;
+                    }
+                    if (!inDecisionsList) {
+                        html += '<div class="decisions-list">';
+                        inDecisionsList = true;
+                    }
+                    continue;
+                }
+                
+                // Check for action items group header
+                if (trimmed.includes('### Action Items for') || trimmed.includes('Action Items & Next Steps:')) {
+                    if (inList) {
+                        html += '</ul>';
+                        inList = false;
+                    }
+                    if (inDecisionsList) {
+                        html += '</div>';
+                        inDecisionsList = false;
                     }
                     const actionItemsPattern = new RegExp('### Action Items for (Client|User):');
                     const match = trimmed.match(actionItemsPattern);
                     if (match) {
                         html += '<div class="action-items-group"><h4>Action Items for ' + match[1] + '</h4>';
                         inActionGroup = true;
+                    } else if (trimmed.includes('Action Items & Next Steps:')) {
+                        html += '<div class="action-items-group"><h4>Action Items & Next Steps</h4>';
+                        inActionGroup = true;
+                    }
+                }
+                // Check for decision item (Decision: description (Context: context))
+                else if (trimmed.startsWith('- Decision:') || trimmed.startsWith('* Decision:')) {
+                    if (inList) {
+                        html += '</ul>';
+                        inList = false;
+                    }
+                    if (!inDecisionsList) {
+                        html += '<div class="decisions-list">';
+                        inDecisionsList = true;
+                    }
+                    const decisionMatch = trimmed.match(/- Decision: (.+?)(?:\s+\(Context: (.+?)\))?$/);
+                    if (decisionMatch) {
+                        html += '<div class="decision-item">';
+                        html += '<div class="decision-description">' + escapeHtml(decisionMatch[1]) + '</div>';
+                        if (decisionMatch[2]) {
+                            html += '<div class="decision-context">' + escapeHtml(decisionMatch[2]) + '</div>';
+                        }
+                        html += '</div>';
                     }
                 }
                 // Check for list item
@@ -528,7 +864,8 @@ async def get_ui():
                         inList = true;
                     }
                     const itemText = trimmed.substring(2).trim();
-                    html += '<li class="action-item">' + escapeHtml(itemText) + '</li>';
+                    const itemClass = inActionGroup ? 'action-item' : '';
+                    html += '<li class="' + itemClass + '">' + escapeHtml(itemText) + '</li>';
                 }
                 // Check for "None" in action items
                 else if (trimmed === 'None' && inActionGroup) {
@@ -536,7 +873,7 @@ async def get_ui():
                         html += '</ul>';
                         inList = false;
                     }
-                    html += '<p style="color: #999; font-style: italic;">None</p></div>';
+                    html += '<p style="color: #86868b; font-style: italic;">None</p></div>';
                     inActionGroup = false;
                 }
                 // Regular paragraph
@@ -549,6 +886,10 @@ async def get_ui():
                         // Close action group if we hit non-action content
                         html += '</div>';
                         inActionGroup = false;
+                    }
+                    if (inDecisionsList && !trimmed.includes('Decision:')) {
+                        html += '</div>';
+                        inDecisionsList = false;
                     }
                     // Convert markdown formatting
                     let formatted = escapeHtml(trimmed);
@@ -565,6 +906,9 @@ async def get_ui():
                 html += '</ul>';
             }
             if (inActionGroup) {
+                html += '</div>';
+            }
+            if (inDecisionsList) {
                 html += '</div>';
             }
             
@@ -585,22 +929,40 @@ async def get_ui():
             const messageCount = chatContainer.children.length;
             messageDiv.style.animationDelay = `${messageCount * 0.05}s`;
             
-            const bubble = document.createElement('div');
-            bubble.className = 'message-bubble';
-            
-            // Check if this is a structured summary and format it
-            if (!isUser && (text.includes('# Meeting Header') || text.includes('## Overview'))) {
-                const formattedSummary = formatStructuredSummary(text);
-                if (formattedSummary instanceof HTMLElement) {
-                    bubble.appendChild(formattedSummary);
-                } else {
-                    bubble.textContent = text;
-                }
-            } else {
+            if (isUser) {
+                // User messages: keep simple bubble style
+                const bubble = document.createElement('div');
+                bubble.className = 'message-bubble';
                 bubble.textContent = text;
+                messageDiv.appendChild(bubble);
+            } else {
+                // Assistant messages: use card styling
+                let cardContent = null;
+                
+                // Check if this is a follow-up email (has subject/body structure)
+                if (text.includes('Subject:') || text.includes('Follow-up:') || 
+                    (typeof text === 'object' && text.subject)) {
+                    cardContent = formatFollowupEmail(text);
+                }
+                
+                // Check if this is a structured summary
+                if (!cardContent && (text.includes('# Meeting Header') || text.includes('## Overview'))) {
+                    cardContent = formatStructuredSummary(text);
+                }
+                
+                // If we have card content, use it; otherwise use simple bubble
+                if (cardContent instanceof HTMLElement) {
+                    // Remove bubble styling, use card directly
+                    messageDiv.style.alignItems = 'stretch';
+                    messageDiv.appendChild(cardContent);
+                } else {
+                    // Fallback to bubble for simple text
+                    const bubble = document.createElement('div');
+                    bubble.className = 'message-bubble';
+                    bubble.textContent = text;
+                    messageDiv.appendChild(bubble);
+                }
             }
-            
-            messageDiv.appendChild(bubble);
             
             if (meetingOptions && meetingOptions.length > 0) {
                 const optionsDiv = document.createElement('div');
@@ -639,7 +1001,10 @@ async def get_ui():
             messageInput.value = message;
             
             // Send the selection with calendar_event_id
-            await sendMessage(option.calendar_event_id || null, option.meeting_id || null);
+            // Ensure we only pass null or a valid calendar event ID (string/number)
+            const calendarEventId = option.calendar_event_id ? String(option.calendar_event_id) : null;
+            const meetingId = option.meeting_id ? (typeof option.meeting_id === 'number' ? option.meeting_id : parseInt(option.meeting_id)) : null;
+            await sendMessage(calendarEventId, meetingId);
         }
         
         async function sendMessage(selectedCalendarEventId = null, selectedMeetingId = null) {
@@ -653,11 +1018,44 @@ async def get_ui():
             sendButton.innerHTML = '<div class="loading"></div>';
             
             try {
+                // Ensure selectedCalendarEventId is either null or a valid string/number
+                // Reject any browser event objects (they have isTrusted property)
+                let validCalendarEventId = null;
+                if (selectedCalendarEventId !== null && selectedCalendarEventId !== undefined) {
+                    // Check if it's a browser event object
+                    if (typeof selectedCalendarEventId === 'object' && selectedCalendarEventId.isTrusted !== undefined) {
+                        // This is a browser event object, ignore it
+                        validCalendarEventId = null;
+                    } else {
+                        // Convert to string if it's a number, otherwise use as-is if string
+                        validCalendarEventId = typeof selectedCalendarEventId === 'number' 
+                            ? String(selectedCalendarEventId) 
+                            : (typeof selectedCalendarEventId === 'string' ? selectedCalendarEventId : null);
+                    }
+                }
+                
+                // Ensure selectedMeetingId is either null or a valid number
+                let validMeetingId = null;
+                if (selectedMeetingId !== null && selectedMeetingId !== undefined) {
+                    if (typeof selectedMeetingId === 'object' && selectedMeetingId.isTrusted !== undefined) {
+                        validMeetingId = null;
+                    } else {
+                        validMeetingId = typeof selectedMeetingId === 'number' 
+                            ? selectedMeetingId 
+                            : (typeof selectedMeetingId === 'string' ? parseInt(selectedMeetingId) : null);
+                    }
+                }
+                
                 const requestBody = {
                     message: message,
-                    selected_meeting_id: selectedMeetingId,
-                    selected_calendar_event_id: selectedCalendarEventId
+                    user_id: 1,  // TEMPORARY until real auth is added
+                    selected_meeting_id: validMeetingId,
+                    selected_calendar_event_id: validCalendarEventId
                 };
+                
+                // TEMPORARY DEBUG: Log request body
+                console.log('[FRONTEND DEBUG] POST request body:', JSON.stringify(requestBody, null, 2));
+                console.log('[FRONTEND DEBUG] user_id in requestBody:', requestBody.user_id);
                 
                 const response = await fetch('/api/chat', {
                     method: 'POST',
@@ -669,10 +1067,21 @@ async def get_ui():
                 
                 const data = await response.json();
                 
+                // Check if response contains follow-up email structure
+                let responseContent = data.response;
+                if (data.extra_data && data.extra_data.debug && 
+                    data.extra_data.debug.tool_output && 
+                    data.extra_data.debug.tool_output.result) {
+                    const toolResult = data.extra_data.debug.tool_output.result;
+                    if (toolResult.subject || toolResult.body) {
+                        responseContent = toolResult;
+                    }
+                }
+                
                 if (data.meeting_options && data.meeting_options.length > 0) {
-                    addMessage(data.response, false, data.meeting_options);
+                    addMessage(responseContent, false, data.meeting_options);
                 } else {
-                    addMessage(data.response, false);
+                    addMessage(responseContent, false);
                 }
             } catch (error) {
                 addMessage('I encountered an error: ' + error.message + '. Please try again or provide more context.', false);
@@ -682,7 +1091,7 @@ async def get_ui():
             }
         }
         
-        sendButton.addEventListener('click', sendMessage);
+        sendButton.addEventListener('click', () => sendMessage());
         messageInput.addEventListener('keypress', (e) => {
             if (e.key === 'Enter') {
                 sendMessage();

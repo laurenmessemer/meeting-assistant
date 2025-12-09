@@ -16,8 +16,10 @@ class FollowUpTool:
         meeting_summary: Optional[str] = None,
         transcript: Optional[str] = None,
         meeting_title: Optional[str] = None,
+        meeting_date: Optional[str] = None,
         client_name: Optional[str] = None,
         client_email: Optional[str] = None,
+        attendees: Optional[str] = None,
         action_items: Optional[list] = None,
         decisions: Optional[list] = None
     ) -> Dict[str, Any]:
@@ -28,47 +30,99 @@ class FollowUpTool:
             meeting_summary: Summary of the meeting
             transcript: Full meeting transcript (optional, for more context)
             meeting_title: Meeting title
+            meeting_date: Formatted meeting date string
             client_name: Client name
             client_email: Client email address
+            attendees: Attendees list as formatted string
             action_items: List of action items from the meeting
-            decisions: List of decisions made in the meeting
+            decisions: List of decisions made in the meeting (can be dicts with description/context)
         
         Returns:
             Dictionary with email subject and body
         """
-        # Build context for email generation
-        context_parts = []
+        # Build structured context for email generation
+        meeting_info_parts = []
         
         if meeting_title:
-            context_parts.append(f"Meeting: {meeting_title}")
+            meeting_info_parts.append(f"- Title: {meeting_title}")
+        if meeting_date:
+            meeting_info_parts.append(f"- Date: {meeting_date}")
         if client_name:
-            context_parts.append(f"Client: {client_name}")
-        if meeting_summary:
-            context_parts.append(f"\nMeeting Summary:\n{meeting_summary}")
-        if transcript:
-            context_parts.append(f"\nFull Transcript:\n{transcript}")
-        if action_items:
-            action_items_text = "\n".join([f"- {item}" for item in action_items])
-            context_parts.append(f"\nAction Items:\n{action_items_text}")
-        if decisions:
-            decisions_text = "\n".join([f"- {decision}" for decision in decisions])
-            context_parts.append(f"\nDecisions:\n{decisions_text}")
+            meeting_info_parts.append(f"- Client: {client_name}")
+        if attendees:
+            meeting_info_parts.append(f"- Attendees: {attendees}")
         
+        # Format decisions if provided
+        decisions_text = ""
+        if decisions:
+            if isinstance(decisions[0], dict):
+                # Decisions are dicts with description/context
+                decisions_list = []
+                for d in decisions:
+                    desc = d.get("description", "")
+                    context = d.get("context", "")
+                    if context:
+                        decisions_list.append(f"• {desc} (Context: {context})")
+                    else:
+                        decisions_list.append(f"• {desc}")
+                decisions_text = "\n".join(decisions_list)
+            else:
+                # Decisions are simple strings
+                decisions_text = "\n".join([f"• {d}" for d in decisions])
+        
+        # Format action items if provided
+        action_items_text = ""
+        if action_items:
+            if isinstance(action_items[0], dict):
+                # Action items are dicts
+                items_list = []
+                for item in action_items:
+                    if isinstance(item, dict):
+                        desc = item.get("description", item.get("item", ""))
+                        owner = item.get("owner", item.get("assigned_to", ""))
+                        if owner:
+                            items_list.append(f"• {desc} (Assigned to: {owner})")
+                        else:
+                            items_list.append(f"• {desc}")
+                    else:
+                        items_list.append(f"• {item}")
+                action_items_text = "\n".join(items_list)
+            else:
+                # Action items are simple strings
+                action_items_text = "\n".join([f"• {item}" for item in action_items])
+        
+        # Build comprehensive prompt similar to summarization style
         prompt = f"""Generate a professional follow-up email based on the meeting information below.
 
-{chr(10).join(context_parts) if context_parts else "No meeting information provided."}
+Meeting Information:
+{chr(10).join(meeting_info_parts) if meeting_info_parts else "No meeting information provided."}
+
+Meeting Summary:
+{meeting_summary if meeting_summary else "No summary available."}
+
+{f"Full Transcript (for additional context):{chr(10)}{transcript}" if transcript else ""}
+
+{f"Decisions Made:{chr(10)}{decisions_text}" if decisions_text else ""}
+
+{f"Action Items & Next Steps:{chr(10)}{action_items_text}" if action_items_text else ""}
 
 Please create a follow-up email that:
-1. Thanks the client for their time
-2. Summarizes key points discussed
-3. Lists action items and next steps
-4. Confirms any decisions made
-5. Sets expectations for follow-up
+1. Opens with a warm thank you for the client's time
+2. Briefly summarizes the key points discussed (2-3 sentences)
+3. Clearly lists action items and next steps, indicating who is responsible for each
+4. Confirms any decisions that were made
+5. Sets clear expectations for follow-up communication or next meeting
 
-The email should be professional, clear, and actionable. Respond in JSON format:
+The email should be:
+- Professional and warm in tone
+- Clear and concise
+- Actionable with specific next steps
+- Appropriate for the client relationship
+
+Respond in JSON format:
 {{
     "subject": "Email subject line",
-    "body": "Email body text"
+    "body": "Email body text (use proper email formatting with paragraphs)"
 }}"""
         
         email_data = self.llm.llm_chat(
@@ -80,7 +134,7 @@ The email should be professional, clear, and actionable. Respond in JSON format:
         
         # Ensure we have the expected structure
         if isinstance(email_data, dict):
-            subject = email_data.get("subject", "Follow-up: Meeting Summary")
+            subject = email_data.get("subject", f"Follow-up: {meeting_title or 'Meeting Summary'}")
             body = email_data.get("body", "Thank you for the meeting.")
         else:
             # Fallback if JSON parsing fails
