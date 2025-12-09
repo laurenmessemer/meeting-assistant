@@ -3,7 +3,8 @@
 from typing import Dict, Any, Optional, List
 from app.llm.gemini_client import GeminiClient
 from app.llm.prompts import SUMMARIZATION_TOOL_PROMPT
-from app.tools.memory_processing import synthesize_memory
+from app.tools.memory_processing import synthesize_memory, get_relevant_past_summaries
+from app.tools.delta_processing import compute_summary_deltas, build_delta_section
 
 
 class SummarizationTool:
@@ -79,11 +80,21 @@ Context From Prior Meetings:
             if len(memory_context_section) > 1200:
                 memory_context_section = memory_context_section[:1200] + "..."
         
+        # Get previous summaries for delta comparison (after summary generation)
+        previous_summaries = []
+        if past_context:
+            previous_summaries = get_relevant_past_summaries(past_context)
+        
+        # Build delta section from previous summaries (compare most recent two)
+        # Note: We can't compare current summary yet (doesn't exist), so we skip delta injection in prompt
+        # Deltas will be computed after summary generation if needed
+        delta_context_section = ""
+        
         # Generate structured summary using LLM
         if not has_transcript:
             # Generate summary without transcript - just calendar information
             prompt = f"""Create a meeting summary based on the available calendar information. Note that no Zoom recording is available for this meeting.
-{memory_context_section}
+{memory_context_section}{delta_context_section}
 
 Meeting Information:
 - Title: {title}
@@ -117,7 +128,7 @@ Format your response using the EXACT section headers shown above (with # and ## 
         else:
             # Generate summary with transcript
             prompt = f"""Analyze the following meeting transcript and create a comprehensive, well-structured summary.
-{memory_context_section}
+{memory_context_section}{delta_context_section}
 
 Meeting Information:
 - Title: {title}

@@ -3,7 +3,8 @@
 from typing import Dict, Any, Optional, List
 from app.llm.gemini_client import GeminiClient
 from app.llm.prompts import SUMMARIZATION_TOOL_PROMPT
-from app.tools.memory_processing import synthesize_memory
+from app.tools.memory_processing import synthesize_memory, get_relevant_past_summaries
+from app.tools.delta_processing import compute_summary_deltas, build_delta_section
 
 
 class MeetingBriefTool:
@@ -67,6 +68,19 @@ Context From Prior Meetings:
             if len(memory_context_section) > 1200:
                 memory_context_section = memory_context_section[:1200] + "..."
         
+        # Get previous summaries and compute deltas if previous_meeting_summary exists
+        delta_context_section = ""
+        if previous_meeting_summary and past_context:
+            previous_summaries = get_relevant_past_summaries(past_context)
+            if previous_summaries:
+                try:
+                    # Compare current previous_meeting_summary against older summaries
+                    deltas = await compute_summary_deltas(previous_meeting_summary, previous_summaries, self.llm)
+                    delta_context_section = build_delta_section(deltas)
+                except Exception:
+                    # Fail gracefully - continue without delta section
+                    pass
+        
         # Build prompt for meeting brief
         context_parts = []
         
@@ -85,6 +99,9 @@ Context From Prior Meetings:
         
         if memory_context_section:
             context_parts.append(memory_context_section)
+        
+        if delta_context_section:
+            context_parts.append(delta_context_section)
         
         prompt = f"""Generate a comprehensive meeting brief to help prepare for an upcoming meeting.
 

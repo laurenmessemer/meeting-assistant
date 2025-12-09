@@ -152,3 +152,37 @@ If you cannot extract meaningful insights for any field, return an empty string 
             "preferences": ""
         }
 
+
+def get_relevant_past_summaries(past_context: Optional[List[Dict[str, Any]]]) -> List[str]:
+    """
+    Extract past meeting summaries from memory items.
+    
+    Args:
+        past_context: List of memory entry dicts with 'value' and 'extra_data' keys
+    
+    Returns:
+        List of up to 3 most recent summaries (truncated to 1200 chars each)
+    """
+    if not past_context:
+        return []
+    
+    summaries = []
+    for mem in past_context:
+        if not isinstance(mem, dict):
+            continue
+        
+        # Check if this is a summarization tool output
+        extra_data = mem.get("extra_data", {})
+        if isinstance(extra_data, dict):
+            tool_used = extra_data.get("tool_used", "")
+            if tool_used == "summarization":
+                value = mem.get("value", "")
+                if value:
+                    # Truncate to 1200 chars
+                    if len(value) > 1200:
+                        value = value[:1200] + "..."
+                    summaries.append(value)
+    
+    # Return up to 3 most recent (they should already be in order, but ensure)
+    return summaries[:3]
+

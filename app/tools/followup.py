@@ -3,7 +3,8 @@
 from typing import Dict, Any, Optional, List
 from app.llm.gemini_client import GeminiClient
 from app.llm.prompts import SUMMARIZATION_TOOL_PROMPT
-from app.tools.memory_processing import synthesize_memory
+from app.tools.memory_processing import synthesize_memory, get_relevant_past_summaries
+from app.tools.delta_processing import compute_summary_deltas, build_delta_section
 
 
 class FollowUpTool:
@@ -73,6 +74,19 @@ Context From Prior Meetings:
             if len(memory_context_section) > 1200:
                 memory_context_section = memory_context_section[:1200] + "..."
         
+        # Get previous summaries and compute deltas if meeting_summary exists
+        delta_context_section = ""
+        if meeting_summary and past_context:
+            previous_summaries = get_relevant_past_summaries(past_context)
+            if previous_summaries:
+                try:
+                    # Compare current meeting_summary against previous summaries
+                    deltas = await compute_summary_deltas(meeting_summary, previous_summaries, self.llm)
+                    delta_context_section = build_delta_section(deltas)
+                except Exception:
+                    # Fail gracefully - continue without delta section
+                    pass
+        
         # Build structured context for email generation
         meeting_info_parts = []
         
@@ -126,7 +140,7 @@ Context From Prior Meetings:
         
         # Build comprehensive prompt similar to summarization style
         prompt = f"""Generate a professional follow-up email based on the meeting information below.
-{memory_context_section}
+{memory_context_section}{delta_context_section}
 
 Meeting Information:
 {chr(10).join(meeting_info_parts) if meeting_info_parts else "No meeting information provided."}
