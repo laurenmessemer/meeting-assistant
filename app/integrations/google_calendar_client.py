@@ -7,6 +7,37 @@ from app.integrations.google_auth import get_google_credentials
 from app.utils.date_utils import extract_event_datetime
 
 
+def to_google_ts(dt: datetime) -> str:
+    """
+    Convert datetime to RFC3339 format for Google Calendar API.
+    
+    Ensures proper formatting:
+    - Never appends "Z" to a timestamp that already includes an offset
+    - Replaces "+00:00" with "Z" when appropriate
+    - Handles naive datetimes (assumes UTC)
+    
+    Args:
+        dt: Datetime object to convert
+    
+    Returns:
+        RFC3339 formatted string (e.g., "2024-10-29T00:00:00Z" or "2024-10-29T00:00:00+05:00")
+    """
+    if dt.tzinfo is None:
+        # Naive datetime - assume UTC and append Z
+        return dt.isoformat() + 'Z'
+    
+    # Timezone-aware datetime - use isoformat which includes timezone
+    ts = dt.isoformat()
+    
+    # Replace "+00:00" with "Z" for UTC (RFC3339 allows both, but Z is cleaner)
+    if ts.endswith('+00:00'):
+        ts = ts[:-6] + 'Z'
+    elif ts.endswith('-00:00'):
+        ts = ts[:-6] + 'Z'
+    
+    return ts
+
+
 def _is_event_in_past(event: Dict[str, Any], now: datetime) -> bool:
     """Check if a calendar event has already occurred."""
     event_time = extract_event_datetime(event)
@@ -33,27 +64,57 @@ class GoogleCalendarClient:
         """
         Get upcoming calendar events.
         
+        This method paginates through all pages but limits results to max_results.
+        
         Args:
             max_results: Maximum number of events to return
             time_min: Start time for events (defaults to now)
         
         Returns:
-            List of event dictionaries
+            List of event dictionaries (up to max_results)
         """
         if time_min is None:
             time_min = datetime.utcnow()
         
         try:
-            events_result = self.service.events().list(
-                calendarId='primary',
-                timeMin=time_min.isoformat() + 'Z',
-                maxResults=max_results,
-                singleEvents=True,
-                orderBy='startTime'
-            ).execute()
+            all_events = []
+            page_token = None
+            page_count = 0
             
-            events = events_result.get('items', [])
-            return events
+            print(f"[DEBUG PAGINATION] get_upcoming_events: max_results={max_results}, time_min={time_min.date()}")
+            
+            while len(all_events) < max_results:
+                page_count += 1
+                request_params = {
+                    'calendarId': 'primary',
+                    'timeMin': to_google_ts(time_min),
+                    'maxResults': min(2500, max_results - len(all_events)),  # Don't fetch more than needed
+                    'singleEvents': True,
+                    'orderBy': 'startTime'
+                }
+                
+                if page_token:
+                    request_params['pageToken'] = page_token
+                    print(f"[DEBUG PAGINATION] get_upcoming_events: Fetching page {page_count} (pageToken={page_token[:20]}...)")
+                else:
+                    print(f"[DEBUG PAGINATION] get_upcoming_events: Fetching page {page_count} (first page)")
+                
+                events_result = self.service.events().list(**request_params).execute()
+                page_events = events_result.get('items', [])
+                all_events.extend(page_events)
+                
+                print(f"[DEBUG PAGINATION] get_upcoming_events: Page {page_count} returned {len(page_events)} events (total so far: {len(all_events)})")
+                
+                # Check for next page
+                page_token = events_result.get('nextPageToken')
+                if not page_token:
+                    print(f"[DEBUG PAGINATION] get_upcoming_events: No more pages. Total pages: {page_count}, Total events: {len(all_events)}")
+                    break
+            
+            # Limit to max_results
+            result = all_events[:max_results]
+            print(f"[DEBUG PAGINATION] get_upcoming_events: Returning {len(result)} events (limited from {len(all_events)})")
+            return result
         except Exception as e:
             raise Exception(f"Error fetching calendar events: {str(e)}")
     
@@ -81,17 +142,125 @@ class GoogleCalendarClient:
         Return ALL Google Calendar events that occur on the exact target_date.
         This ensures we only pull events for one day, not an entire month or range.
         
+        This method:
+        1. Queries the exact 24-hour window (00:00:00Z to 23:59:59Z)
+        2. Uses maxResults=50 (sufficient for a single day)
+        3. Paginates through all pages
+        4. Filters to events on the exact target_date
+        5. Sorts events newest→oldest (most recent first)
+        
         Args:
             target_date: The date to search for events (date object)
         
         Returns:
-            List of event dictionaries that occur on that exact date
+            List of event dictionaries that occur on that exact date, sorted newest→oldest
         """
-        start_dt = datetime.combine(target_date, datetime.min.time()).replace(tzinfo=timezone.utc)
-        end_dt = datetime.combine(target_date, datetime.max.time()).replace(tzinfo=timezone.utc)
+        print(f"[DEBUG CALENDAR] get_events_on_date: target_date={target_date}, year={target_date.year}")
         
-        events = self.get_events_by_time_range(start_dt, end_dt)
-        return events
+        # Restrict query to EXACT 24-hour window: 00:00:00Z to 23:59:59Z
+        start_dt = datetime.combine(target_date, datetime.min.time()).replace(tzinfo=timezone.utc)
+        # Use 23:59:59 (end of day) - Google Calendar API will include events up to this time
+        end_dt = datetime.combine(target_date, datetime(1900, 1, 1, 23, 59, 59).time()).replace(tzinfo=timezone.utc)
+        
+        time_min_str = to_google_ts(start_dt)
+        time_max_str = to_google_ts(end_dt)
+        print(f"[DEBUG CALENDAR] get_events_on_date: timeMin={time_min_str}, timeMax={time_max_str}")
+        print(f"[DEBUG CALENDAR] get_events_on_date: Query window: {start_dt} to {end_dt} (year={target_date.year})")
+        
+        # Fetch ALL events in the time range with maxResults=50 and pagination
+        all_events = self._get_events_by_time_range_with_limit(start_dt, end_dt, max_results=50)
+        print(f"[DEBUG CALENDAR] get_events_on_date: Collected {len(all_events)} total events from all pages")
+        
+        # Filter to events that occur on the exact target_date
+        # (Google Calendar API may return events that span multiple days)
+        from app.utils.date_utils import extract_event_datetime
+        filtered_events = []
+        for event in all_events:
+            evt_dt = extract_event_datetime(event)
+            if evt_dt and evt_dt.date() == target_date:
+                filtered_events.append(event)
+        
+        print(f"[DEBUG CALENDAR] get_events_on_date: Filtered to {len(filtered_events)} events on exact date {target_date}")
+        
+        # Sort events newest→oldest (most recent first)
+        # This ensures newer events are processed first, preventing older events from being selected
+        if filtered_events:
+            filtered_events.sort(key=lambda evt: extract_event_datetime(evt) or datetime.min.replace(tzinfo=timezone.utc), reverse=True)
+            
+            # Log sorted order
+            event_timestamps = []
+            for evt in filtered_events:
+                evt_dt = extract_event_datetime(evt)
+                if evt_dt:
+                    event_timestamps.append(evt_dt)
+            
+            print(f"[DEBUG CALENDAR] get_events_on_date: Sorted {len(filtered_events)} events newest→oldest")
+            if event_timestamps:
+                print(f"[DEBUG CALENDAR] get_events_on_date: First (newest) event: {event_timestamps[0]} (year={event_timestamps[0].year})")
+                print(f"[DEBUG CALENDAR] get_events_on_date: Last (oldest) event: {event_timestamps[-1]} (year={event_timestamps[-1].year})")
+            
+            # Log all events
+            for i, evt in enumerate(filtered_events):
+                evt_dt = extract_event_datetime(evt) if evt else None
+                evt_year = evt_dt.year if evt_dt else "N/A"
+                evt_summary = evt.get('summary', 'Untitled') if evt else "N/A"
+                print(f"[DEBUG CALENDAR] get_events_on_date: event[{i}] summary='{evt_summary}', date={evt_dt}, year={evt_year}")
+        else:
+            print(f"[DEBUG CALENDAR] get_events_on_date: no events on exact date")
+        
+        return filtered_events
+    
+    def _get_events_by_time_range_with_limit(
+        self, 
+        start_time: datetime, 
+        end_time: datetime,
+        max_results: int = 2500
+    ) -> List[Dict[str, Any]]:
+        """
+        Get events within a specific time range with configurable maxResults.
+        
+        This is a helper method for get_events_on_date() that allows setting
+        a lower maxResults value for single-day queries.
+        
+        Args:
+            start_time: Start of time range
+            end_time: End of time range
+            max_results: Maximum events per page (default: 2500)
+        
+        Returns:
+            List of event dictionaries from all pages
+        """
+        try:
+            all_events = []
+            page_token = None
+            page_count = 0
+            
+            while True:
+                page_count += 1
+                request_params = {
+                    'calendarId': 'primary',
+                    'timeMin': to_google_ts(start_time),
+                    'timeMax': to_google_ts(end_time),
+                    'maxResults': max_results,
+                    'singleEvents': True,
+                    'orderBy': 'startTime'
+                }
+                
+                if page_token:
+                    request_params['pageToken'] = page_token
+                
+                events_result = self.service.events().list(**request_params).execute()
+                page_events = events_result.get('items', [])
+                all_events.extend(page_events)
+                
+                # Check for next page
+                page_token = events_result.get('nextPageToken')
+                if not page_token:
+                    break
+            
+            return all_events
+        except Exception as e:
+            raise Exception(f"Error fetching calendar events: {str(e)}")
     
     def get_events_by_time_range(
         self, 
@@ -101,24 +270,118 @@ class GoogleCalendarClient:
         """
         Get events within a specific time range.
         
+        This method paginates through ALL pages of results to ensure we get
+        all events, not just the first page.
+        
         Args:
             start_time: Start of time range
             end_time: End of time range
         
         Returns:
-            List of event dictionaries
+            List of event dictionaries from all pages
         """
         try:
-            events_result = self.service.events().list(
-                calendarId='primary',
-                timeMin=start_time.isoformat() + 'Z',
-                timeMax=end_time.isoformat() + 'Z',
-                singleEvents=True,
-                orderBy='startTime'
-            ).execute()
+            all_events = []
+            page_token = None
+            page_count = 0
             
-            events = events_result.get('items', [])
-            return events
+            print(f"[DEBUG PAGINATION] get_events_by_time_range: start_time={start_time.date()}, end_time={end_time.date()}")
+            
+            while True:
+                page_count += 1
+                request_params = {
+                    'calendarId': 'primary',
+                    'timeMin': to_google_ts(start_time),
+                    'timeMax': to_google_ts(end_time),
+                    'maxResults': 2500,  # Maximum per page (Google Calendar API limit)
+                    'singleEvents': True,
+                    'orderBy': 'startTime'
+                }
+                
+                if page_token:
+                    request_params['pageToken'] = page_token
+                    print(f"[DEBUG PAGINATION] get_events_by_time_range: Fetching page {page_count} (pageToken={page_token[:20]}...)")
+                else:
+                    print(f"[DEBUG PAGINATION] get_events_by_time_range: Fetching page {page_count} (first page)")
+                
+                print(f"[DEBUG PAGINATION] get_events_by_time_range: Request params:")
+                print(f"  - timeMin: {to_google_ts(start_time)}")
+                print(f"  - timeMax: {to_google_ts(end_time)}")
+                print(f"  - maxResults: {request_params['maxResults']}")
+                print(f"  - orderBy: {request_params['orderBy']}")
+                print(f"  - pageToken: {'present' if page_token else 'None'}")
+                
+                events_result = self.service.events().list(**request_params).execute()
+                page_events = events_result.get('items', [])
+                all_events.extend(page_events)
+                
+                # Extract timestamps from page events to check order
+                from app.utils.date_utils import extract_event_datetime
+                page_timestamps = []
+                for evt in page_events:
+                    evt_dt = extract_event_datetime(evt)
+                    if evt_dt:
+                        page_timestamps.append(evt_dt)
+                
+                print(f"[DEBUG PAGINATION] get_events_by_time_range: Page {page_count} returned {len(page_events)} events (total so far: {len(all_events)})")
+                if page_timestamps:
+                    first_in_page = min(page_timestamps)
+                    last_in_page = max(page_timestamps)
+                    print(f"[DEBUG PAGINATION] get_events_by_time_range: Page {page_count} event range:")
+                    print(f"  - First event in page: {first_in_page} (year={first_in_page.year})")
+                    print(f"  - Last event in page: {last_in_page} (year={last_in_page.year})")
+                    # Check if events are ascending (oldest first) or descending (newest first)
+                    if len(page_timestamps) > 1:
+                        is_ascending = page_timestamps[0] < page_timestamps[-1]
+                        order_str = "ASCENDING (oldest→newest)" if is_ascending else "DESCENDING (newest→oldest)"
+                        print(f"  - Order: {order_str}")
+                
+                # Check for next page
+                page_token = events_result.get('nextPageToken')
+                print(f"[DEBUG PAGINATION] get_events_by_time_range: nextPageToken present: {page_token is not None}")
+                if page_token:
+                    print(f"[DEBUG PAGINATION] get_events_by_time_range: nextPageToken value: {page_token[:50]}...")
+                else:
+                    print(f"[DEBUG PAGINATION] get_events_by_time_range: No more pages. Total pages: {page_count}, Total events: {len(all_events)}")
+                    break
+            
+            # Log earliest and latest event dates
+            if all_events:
+                from app.utils.date_utils import extract_event_datetime
+                event_dates = []
+                for event in all_events:
+                    evt_dt = extract_event_datetime(event)
+                    if evt_dt:
+                        event_dates.append(evt_dt)
+                
+                if event_dates:
+                    earliest = min(event_dates)
+                    latest = max(event_dates)
+                    print(f"[DEBUG PAGINATION] get_events_by_time_range: FINAL SUMMARY:")
+                    print(f"  - Total events collected: {len(all_events)}")
+                    print(f"  - Total pages fetched: {page_count}")
+                    print(f"  - Earliest event: {earliest} (year={earliest.year})")
+                    print(f"  - Latest event: {latest} (year={latest.year})")
+                    
+                    # Check overall order of all events
+                    if len(event_dates) > 1:
+                        sorted_ascending = sorted(event_dates)
+                        sorted_descending = sorted(event_dates, reverse=True)
+                        is_sorted_asc = event_dates == sorted_ascending
+                        is_sorted_desc = event_dates == sorted_descending
+                        if is_sorted_asc:
+                            print(f"  - Overall order: ASCENDING (oldest→newest)")
+                        elif is_sorted_desc:
+                            print(f"  - Overall order: DESCENDING (newest→oldest)")
+                        else:
+                            print(f"  - Overall order: UNSORTED (mixed order)")
+                            print(f"    First event: {event_dates[0]}, Last event: {event_dates[-1]}")
+                else:
+                    print(f"[DEBUG PAGINATION] get_events_by_time_range: Could not extract dates from events")
+            else:
+                print(f"[DEBUG PAGINATION] get_events_by_time_range: No events found in time range")
+            
+            return all_events
         except Exception as e:
             raise Exception(f"Error fetching calendar events: {str(e)}")
     
@@ -178,8 +441,8 @@ class GoogleCalendarClient:
                 while True:
                     request_params = {
                         'calendarId': 'primary',
-                        'timeMin': time_min.isoformat() + 'Z',
-                        'timeMax': time_max.isoformat() + 'Z',
+                        'timeMin': to_google_ts(time_min),
+                        'timeMax': to_google_ts(time_max),
                         'maxResults': 2500,  # Maximum per page
                         'singleEvents': True,
                         'orderBy': 'startTime'
@@ -210,8 +473,8 @@ class GoogleCalendarClient:
                 while True:
                     request_params = {
                         'calendarId': 'primary',
-                        'timeMin': time_min.isoformat() + 'Z',
-                        'timeMax': time_max.isoformat() + 'Z',
+                        'timeMin': to_google_ts(time_min),
+                        'timeMax': to_google_ts(time_max),
                         'maxResults': 2500,  # Maximum per page
                         'singleEvents': True,
                         'orderBy': 'startTime'
@@ -399,8 +662,8 @@ class GoogleCalendarClient:
             # Get events from the past
             events_result = self.service.events().list(
                 calendarId='primary',
-                timeMin=time_min.isoformat() + 'Z',
-                timeMax=time_max.isoformat() + 'Z',
+                timeMin=to_google_ts(time_min),
+                timeMax=to_google_ts(time_max),
                 maxResults=100,  # Get enough to find the most recent
                 singleEvents=True,
                 orderBy='startTime'  # Google returns ascending, we'll reverse
@@ -447,8 +710,8 @@ class GoogleCalendarClient:
             # Get events from the past
             events_result = self.service.events().list(
                 calendarId='primary',
-                timeMin=time_min.isoformat() + 'Z',
-                timeMax=time_max.isoformat() + 'Z',
+                timeMin=to_google_ts(time_min),
+                timeMax=to_google_ts(time_max),
                 maxResults=100,  # Get enough to find the most recent
                 singleEvents=True,
                 orderBy='startTime'  # Google returns ascending, we'll reverse
@@ -500,8 +763,8 @@ class GoogleCalendarClient:
             # Get events from the past
             events_result = self.service.events().list(
                 calendarId='primary',
-                timeMin=time_min.isoformat() + 'Z',
-                timeMax=time_max.isoformat() + 'Z',
+                timeMin=to_google_ts(time_min),
+                timeMax=to_google_ts(time_max),
                 maxResults=100,  # Get enough to find matches
                 singleEvents=True,
                 orderBy='startTime'
@@ -556,8 +819,8 @@ class GoogleCalendarClient:
             # Get upcoming events
             events_result = self.service.events().list(
                 calendarId='primary',
-                timeMin=time_min.isoformat() + 'Z',
-                timeMax=time_max.isoformat() + 'Z',
+                timeMin=to_google_ts(time_min),
+                timeMax=to_google_ts(time_max),
                 maxResults=10,  # We only need the first one
                 singleEvents=True,
                 orderBy='startTime'  # Google returns ascending (earliest first)
@@ -595,8 +858,8 @@ class GoogleCalendarClient:
             # Get upcoming events
             events_result = self.service.events().list(
                 calendarId='primary',
-                timeMin=time_min.isoformat() + 'Z',
-                timeMax=time_max.isoformat() + 'Z',
+                timeMin=to_google_ts(time_min),
+                timeMax=to_google_ts(time_max),
                 maxResults=50,  # Get enough to find matches
                 singleEvents=True,
                 orderBy='startTime'  # Google returns ascending (earliest first)
@@ -649,8 +912,17 @@ def get_calendar_events_on_date(target_date: date) -> List[Dict[str, Any]]:
     Returns:
         List of event dictionaries
     """
+    print(f"[DEBUG STEP 5] get_calendar_events_on_date: target_date={target_date}, year={target_date.year}")
     client = GoogleCalendarClient()
-    return client.get_events_on_date(target_date)
+    events = client.get_events_on_date(target_date)
+    print(f"[DEBUG STEP 5] get_calendar_events_on_date: returned {len(events)} events")
+    if events:
+        for i, evt in enumerate(events):
+            evt_dt = extract_event_datetime(evt) if evt else None
+            evt_year = evt_dt.year if evt_dt else "N/A"
+            evt_summary = evt.get('summary', 'Untitled') if evt else "N/A"
+            print(f"[DEBUG STEP 5] get_calendar_events_on_date: event[{i}] summary='{evt_summary}', date={evt_dt}, year={evt_year}")
+    return events
 
 
 def get_calendar_events_by_time_range(start_time: datetime, end_time: datetime) -> List[Dict[str, Any]]:
