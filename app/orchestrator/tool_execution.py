@@ -329,17 +329,22 @@ class ToolExecutor:
         integration_data: Dict[str, Any]
     ) -> Optional[Dict[str, Any]]:
         """Execute the appropriate tool based on intent with prepared data."""
+        # Extract memory from context (optional, safe if missing)
+        # context may be None, user_memories may be empty
+        user_memories = context.get("user_memories", []) if context else []
+        past_context = user_memories[:5] if user_memories else None  # Max 5 items
+        
         try:
             if intent == "meeting_brief":
-                return await self._execute_meeting_brief(integration_data)
+                return await self._execute_meeting_brief(integration_data, context)
             
             elif intent == "summarization":
                 return await self._execute_summarization(
-                    integration_data, user_id, client_id
+                    integration_data, user_id, client_id, context
                 )
             
             elif intent == "followup":
-                return await self._execute_followup(integration_data)
+                return await self._execute_followup(integration_data, context)
             
             else:
                 return None
@@ -356,9 +361,14 @@ class ToolExecutor:
     
     async def _execute_meeting_brief(
         self,
-        integration_data: Dict[str, Any]
+        integration_data: Dict[str, Any],
+        context: Dict[str, Any] = None
     ) -> Dict[str, Any]:
         """Execute meeting brief tool."""
+        # Extract memory from context (optional, safe if missing)
+        user_memories = context.get("user_memories", []) if context else []
+        past_context = user_memories[:5] if user_memories else None  # Max 5 items
+        
         structured_data = integration_data.get("structured_data", {})
         
         # Check if we have enough context
@@ -366,7 +376,10 @@ class ToolExecutor:
             return None
         
         # Call tool with structured input
-        result = await self.meeting_brief_tool.generate_brief(**structured_data)
+        result = await self.meeting_brief_tool.generate_brief(
+            **structured_data,
+            past_context=past_context
+        )
         
         return {
             "tool_name": "meeting_brief",
@@ -377,9 +390,14 @@ class ToolExecutor:
         self,
         integration_data: Dict[str, Any],
         user_id: Optional[int],
-        client_id: Optional[int]
+        client_id: Optional[int],
+        context: Dict[str, Any] = None
     ) -> Dict[str, Any]:
         """Execute summarization tool."""
+        # Extract memory from context (optional, safe if missing)
+        user_memories = context.get("user_memories", []) if context else []
+        past_context = user_memories[:5] if user_memories else None  # Max 5 items
+        
         # Check if we need user selection
         if integration_data.get("meeting_options"):
             return {
@@ -415,7 +433,10 @@ class ToolExecutor:
             }
         
         # Call tool with structured input
-        result = await self.summarization_tool.summarize_meeting(**structured_data)
+        result = await self.summarization_tool.summarize_meeting(
+            **structured_data,
+            past_context=past_context
+        )
         
         # Check if result has error
         if result.get("error"):
@@ -455,9 +476,14 @@ class ToolExecutor:
     
     async def _execute_followup(
         self,
-        integration_data: Dict[str, Any]
+        integration_data: Dict[str, Any],
+        context: Dict[str, Any] = None
     ) -> Dict[str, Any]:
         """Execute follow-up tool."""
+        # Extract memory from context (optional, safe if missing)
+        user_memories = context.get("user_memories", []) if context else []
+        past_context = user_memories[:5] if user_memories else None  # Max 5 items
+        
         structured_data = integration_data.get("structured_data", {})
         
         if not structured_data.get("meeting_summary"):
@@ -467,7 +493,10 @@ class ToolExecutor:
             }
         
         # Call tool with structured input
-        result = await self.followup_tool.generate_followup(**structured_data)
+        result = await self.followup_tool.generate_followup(
+            **structured_data,
+            past_context=past_context
+        )
         
         return {
             "tool_name": "followup",

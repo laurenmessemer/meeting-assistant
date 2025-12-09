@@ -1,0 +1,189 @@
+--- a/app/orchestrator/tool_execution.py
++++ b/app/orchestrator/tool_execution.py
+@@ -317,6 +317,13 @@ class ToolExecutor:
+     async def execute(
+         self,
+         intent: str,
+         message: str,
+         context: Dict[str, Any],
+         user_id: Optional[int],
+         client_id: Optional[int],
+         extracted_info: Dict[str, Any],
+         prepared_data: Dict[str, Any],
+         integration_data: Dict[str, Any]
+     ) -> Optional[Dict[str, Any]]:
+         """Execute the appropriate tool based on intent with prepared data."""
++        # Extract memory from context (optional, safe if missing)
++        # context may be None, user_memories may be empty
++        user_memories = context.get("user_memories", []) if context else []
++        past_context = user_memories[:5] if user_memories else None  # Max 5 items
++        
+         try:
+             if intent == "meeting_brief":
+-                return await self._execute_meeting_brief(integration_data)
++                return await self._execute_meeting_brief(integration_data, context)
+             
+             elif intent == "summarization":
+                 return await self._execute_summarization(
+-                    integration_data, user_id, client_id
++                    integration_data, user_id, client_id, context
+                 )
+             
+             elif intent == "followup":
+-                return await self._execute_followup(integration_data)
++                return await self._execute_followup(integration_data, context)
+             
+             else:
+                 return None
+@@ -354,9 +361,16 @@ class ToolExecutor:
+     
+     async def _execute_meeting_brief(
+         self,
+-        integration_data: Dict[str, Any]
++        integration_data: Dict[str, Any],
++        context: Dict[str, Any] = None
+     ) -> Dict[str, Any]:
+         """Execute meeting brief tool."""
++        # Extract memory from context (optional, safe if missing)
++        user_memories = context.get("user_memories", []) if context else []
++        past_context = user_memories[:5] if user_memories else None  # Max 5 items
++        
+         structured_data = integration_data.get("structured_data", {})
+         
+         # Check if we have enough context
+         if not structured_data.get("client_name"):
+             return None
+         
+         # Call tool with structured input
+-        result = await self.meeting_brief_tool.generate_brief(**structured_data)
++        result = await self.meeting_brief_tool.generate_brief(
++            **structured_data,
++            past_context=past_context
++        )
+         
+         return {
+             "tool_name": "meeting_brief",
+             "result": result
+         }
+     
+     async def _execute_summarization(
+         self,
+         integration_data: Dict[str, Any],
+         user_id: Optional[int],
+-        client_id: Optional[int]
++        client_id: Optional[int],
++        context: Dict[str, Any] = None
+     ) -> Dict[str, Any]:
+         """Execute summarization tool."""
++        # Extract memory from context (optional, safe if missing)
++        user_memories = context.get("user_memories", []) if context else []
++        past_context = user_memories[:5] if user_memories else None  # Max 5 items
++        
+         # Check if we need user selection
+         if integration_data.get("meeting_options"):
+             return {
+                 "tool_name": "summarization",
+                 "result": None,
+                 "meeting_options": integration_data["meeting_options"],
+                 "requires_selection": True
+             }
+         
+         # Check for errors
+         if integration_data.get("error"):
+             return {
+                 "tool_name": "summarization",
+                 "error": integration_data["error"]
+             }
+         
+         structured_data = integration_data.get("structured_data")
+         if not structured_data:
+             return {
+                 "tool_name": "summarization",
+                 "error": "No meeting found to summarize."
+             }
+         
+         # Validate we have transcript if has_transcript is True
+         if structured_data.get("has_transcript") and not structured_data.get("transcript"):
+             title = structured_data.get("meeting_title", "this meeting")
+             return {
+                 "tool_name": "summarization",
+                 "error": (
+                     f"No transcript available for {title}. "
+                     "To summarize a meeting, you need a Zoom recording with transcript that matches the calendar event."
+                 )
+             }
+         
+         # Call tool with structured input
+-        result = await self.summarization_tool.summarize_meeting(**structured_data)
++        result = await self.summarization_tool.summarize_meeting(
++            **structured_data,
++            past_context=past_context
++        )
+         
+         # Check if result has error
+         if result.get("error"):
+             return {
+                 "tool_name": "summarization",
+                 "error": result["error"]
+             }
+         
+         # Store decisions in memory if we have a meeting
+         meeting_id = integration_data.get("meeting_id")
+         if meeting_id and result.get("decisions") and client_id:
+             decisions_to_save = []
+             for decision_data in result.get("decisions", []):
+                 if isinstance(decision_data, dict):
+                     decisions_to_save.append(
+                         DecisionCreate(
+                             meeting_id=meeting_id,
+                             client_id=client_id,
+                             description=decision_data.get("description", ""),
+                             context=decision_data.get("context"),
+                         )
+                     )
+             if decisions_to_save:
+                 self.memory.save_decisions(decisions_to_save)
+         
+         # Update meeting with summary if we have a meeting_id
+         if meeting_id and result.get("summary"):
+             self.memory.update_meeting(
+                 meeting_id,
+                 MeetingUpdate(summary=result.get("summary"))
+             )
+         
+         return {
+             "tool_name": "summarization",
+             "result": result
+         }
+     
+     async def _execute_followup(
+         self,
+-        integration_data: Dict[str, Any]
++        integration_data: Dict[str, Any],
++        context: Dict[str, Any] = None
+     ) -> Dict[str, Any]:
+         """Execute follow-up tool."""
++        # Extract memory from context (optional, safe if missing)
++        user_memories = context.get("user_memories", []) if context else []
++        past_context = user_memories[:5] if user_memories else None  # Max 5 items
++        
+         structured_data = integration_data.get("structured_data", {})
+         
+         if not structured_data.get("meeting_summary"):
+             return {
+                 "tool_name": "followup",
+                 "error": "No meeting summary available for follow-up."
+             }
+         
+         # Call tool with structured input
+-        result = await self.followup_tool.generate_followup(**structured_data)
++        result = await self.followup_tool.generate_followup(
++            **structured_data,
++            past_context=past_context
++        )
+         
+         return {
+             "tool_name": "followup",
+             "result": result
+         }
+
