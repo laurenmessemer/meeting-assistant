@@ -1,8 +1,9 @@
 """Summarization tool for post-meeting analysis."""
 
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from app.llm.gemini_client import GeminiClient
 from app.llm.prompts import SUMMARIZATION_TOOL_PROMPT
+from app.tools.memory_processing import synthesize_memory
 
 
 class SummarizationTool:
@@ -18,7 +19,8 @@ class SummarizationTool:
         meeting_date: Optional[str] = None,
         recording_date: Optional[str] = None,
         attendees: Optional[str] = None,
-        has_transcript: bool = True
+        has_transcript: bool = True,
+        past_context: Optional[List[Dict[str, Any]]] = None
     ) -> Dict[str, Any]:
         """
         Summarize a meeting and extract decisions/actions.
@@ -30,6 +32,7 @@ class SummarizationTool:
             recording_date: Zoom recording date for display
             attendees: Comma-separated list of attendee names
             has_transcript: Whether transcript is available (default: True)
+            past_context: Optional list of past meeting memories for context
         
         Returns:
             Dictionary with summary, decisions, and metadata
@@ -46,10 +49,41 @@ class SummarizationTool:
         recording_date_str = recording_date or "N/A"
         attendees_display = attendees or "Not specified"
         
+        # Synthesize memory insights if past_context provided
+        insights = {
+            "communication_style": "",
+            "client_history": "",
+            "recurring_topics": "",
+            "open_loops": "",
+            "preferences": ""
+        }
+        if past_context:
+            try:
+                insights = await synthesize_memory(past_context, self.llm)
+            except Exception:
+                # Fail gracefully - continue without memory insights
+                pass
+        
+        # Build memory context section if insights exist
+        memory_context_section = ""
+        if any(insights.values()):  # Only include if at least one field has content
+            memory_context_section = f"""
+Context From Prior Meetings:
+- Communication style: {insights['communication_style']}
+- Client history: {insights['client_history']}
+- Recurring themes: {insights['recurring_topics']}
+- Open loops: {insights['open_loops']}
+- User preferences: {insights['preferences']}
+"""
+            # Enforce 1200 character limit on memory context section
+            if len(memory_context_section) > 1200:
+                memory_context_section = memory_context_section[:1200] + "..."
+        
         # Generate structured summary using LLM
         if not has_transcript:
             # Generate summary without transcript - just calendar information
             prompt = f"""Create a meeting summary based on the available calendar information. Note that no Zoom recording is available for this meeting.
+{memory_context_section}
 
 Meeting Information:
 - Title: {title}
@@ -83,6 +117,7 @@ Format your response using the EXACT section headers shown above (with # and ## 
         else:
             # Generate summary with transcript
             prompt = f"""Analyze the following meeting transcript and create a comprehensive, well-structured summary.
+{memory_context_section}
 
 Meeting Information:
 - Title: {title}

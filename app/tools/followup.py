@@ -1,8 +1,9 @@
 """Follow-up email generation tool."""
 
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from app.llm.gemini_client import GeminiClient
 from app.llm.prompts import SUMMARIZATION_TOOL_PROMPT
+from app.tools.memory_processing import synthesize_memory
 
 
 class FollowUpTool:
@@ -21,7 +22,8 @@ class FollowUpTool:
         client_email: Optional[str] = None,
         attendees: Optional[str] = None,
         action_items: Optional[list] = None,
-        decisions: Optional[list] = None
+        decisions: Optional[list] = None,
+        past_context: Optional[List[Dict[str, Any]]] = None
     ) -> Dict[str, Any]:
         """
         Generate a follow-up email.
@@ -36,10 +38,41 @@ class FollowUpTool:
             attendees: Attendees list as formatted string
             action_items: List of action items from the meeting
             decisions: List of decisions made in the meeting (can be dicts with description/context)
+            past_context: Optional list of past meeting memories for context
         
         Returns:
             Dictionary with email subject and body
         """
+        # Synthesize memory insights if past_context provided
+        insights = {
+            "communication_style": "",
+            "client_history": "",
+            "recurring_topics": "",
+            "open_loops": "",
+            "preferences": ""
+        }
+        if past_context:
+            try:
+                insights = await synthesize_memory(past_context, self.llm)
+            except Exception:
+                # Fail gracefully - continue without memory insights
+                pass
+        
+        # Build memory context section if insights exist
+        memory_context_section = ""
+        if any(insights.values()):  # Only include if at least one field has content
+            memory_context_section = f"""
+Context From Prior Meetings:
+- Communication style: {insights['communication_style']}
+- Client history: {insights['client_history']}
+- Recurring themes: {insights['recurring_topics']}
+- Open loops: {insights['open_loops']}
+- User preferences: {insights['preferences']}
+"""
+            # Enforce 1200 character limit on memory context section
+            if len(memory_context_section) > 1200:
+                memory_context_section = memory_context_section[:1200] + "..."
+        
         # Build structured context for email generation
         meeting_info_parts = []
         
@@ -93,6 +126,7 @@ class FollowUpTool:
         
         # Build comprehensive prompt similar to summarization style
         prompt = f"""Generate a professional follow-up email based on the meeting information below.
+{memory_context_section}
 
 Meeting Information:
 {chr(10).join(meeting_info_parts) if meeting_info_parts else "No meeting information provided."}
