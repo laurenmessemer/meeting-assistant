@@ -417,6 +417,17 @@ class ToolExecutor:
         
         # Step 1: If meeting_id provided, fetch meeting from database
         if meeting_id:
+            # Validate and cast meeting_id to integer
+            if not isinstance(meeting_id, int):
+                try:
+                    meeting_id = int(meeting_id)
+                except (ValueError, TypeError):
+                    return {
+                        "tool_name": "followup",
+                        "error": "Invalid meeting_id format"
+                    }
+            
+            # Validate meeting exists in database
             print(f"[FOLLOWUP DEBUG] Step 1: Explicit meeting_id provided ({meeting_id}), fetching from database...")
             meeting = self.memory.get_meeting_by_id(meeting_id)
             if meeting:
@@ -429,7 +440,10 @@ class ToolExecutor:
                 print(f"[FOLLOWUP DEBUG] Step 1: Returning result with meeting_id={meeting_id}")
                 return result
             else:
-                print(f"[FOLLOWUP DEBUG] Step 1: Meeting {meeting_id} NOT found in DB, continuing to fallback...")
+                return {
+                    "tool_name": "followup",
+                    "error": f"Meeting ID {meeting_id} does not exist in database"
+                }
         else:
             print(f"[FOLLOWUP DEBUG] Step 1: No explicit meeting_id provided — running meeting inference fallback")
         
@@ -438,7 +452,21 @@ class ToolExecutor:
             persistent = context.get("persistent_memory", {}) if context else {}
             last_selected = persistent.get("last_selected_meeting")
             if last_selected and hasattr(last_selected, "value"):
-                meeting_id = int(last_selected.value)
+                try:
+                    meeting_id = int(last_selected.value)
+                except (ValueError, TypeError):
+                    return {
+                        "tool_name": "followup",
+                        "error": "Invalid meeting_id format"
+                    }
+                
+                # Validate meeting from persistent memory still exists in database
+                meeting = self.memory.get_meeting_by_id(meeting_id)
+                if meeting is None:
+                    return {
+                        "tool_name": "followup",
+                        "error": f"Meeting ID {meeting_id} does not exist in database"
+                    }
         
         # Step 2: If NO meeting_id but client_id exists, use MeetingFinder
         if not meeting_id and client_id:
@@ -472,11 +500,27 @@ class ToolExecutor:
         
         # Step 3: If we now have a meeting_id, get data from database
         if meeting_id:
+            # Validate and cast meeting_id to integer
+            if not isinstance(meeting_id, int):
+                try:
+                    meeting_id = int(meeting_id)
+                except (ValueError, TypeError):
+                    return {
+                        "tool_name": "followup",
+                        "error": "Invalid meeting_id format"
+                    }
+            
+            # Validate meeting from fallback search exists in database
             meeting = self.memory.get_meeting_by_id(meeting_id)
             if meeting:
                 result["structured_data"] = self._build_followup_structured_data(
                     meeting, client_id, user_id
                 )
+            else:
+                return {
+                    "tool_name": "followup",
+                    "error": f"Meeting ID {meeting_id} does not exist in database"
+                }
         
         # TEMPORARY DEBUG: Log final result
         print(f"[FOLLOWUP DEBUG] Final result: meeting_id in result = {result.get('meeting_id')}, has_structured_data = {bool(result.get('structured_data'))}")
