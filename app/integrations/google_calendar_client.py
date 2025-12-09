@@ -257,6 +257,20 @@ class GoogleCalendarClient:
                 page_token = events_result.get('nextPageToken')
                 if not page_token:
                     break
+
+            # Debug summary
+            print(f"[DEBUG PAGINATION] _get_events_by_time_range_with_limit: pages={page_count}, total_events={len(all_events)}, max_results_per_page={max_results}")
+            event_dates = []
+            for evt in all_events:
+                dt = extract_event_datetime(evt)
+                if dt:
+                    event_dates.append(dt)
+            if event_dates:
+                earliest = min(event_dates)
+                latest = max(event_dates)
+                print(f"[DEBUG PAGINATION] _get_events_by_time_range_with_limit: earliest={earliest}, latest={latest}")
+            else:
+                print(f"[DEBUG PAGINATION] _get_events_by_time_range_with_limit: no parsable dates")
             
             return all_events
         except Exception as e:

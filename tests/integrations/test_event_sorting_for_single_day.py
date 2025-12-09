@@ -1,374 +1,143 @@
 """
-Test event sorting for single-day calendar queries.
-
-This test verifies that get_events_on_date():
-1. Only queries the exact date range (2025-10-29)
-2. Uses maxResults=50
-3. Returns events sorted newest→oldest
-4. Never returns events from wrong year (2024) when querying 2025
+Integration-layer test for GoogleCalendarClient.get_events_on_date (isolated).
+Ensures:
+- exact 24h window with maxResults=50, singleEvents=True, orderBy='startTime'
+- only target-year events returned
+- sorting newest → oldest
 """
 
-import pytest
-from unittest.mock import Mock, patch
-from datetime import datetime, date, timezone
+import sys
+import types
+from datetime import date as _dt_date
+
+# --- Stub Google modules to avoid external deps during import ---
+stub_googleapiclient = types.ModuleType("googleapiclient")
+stub_googleapiclient.discovery = types.ModuleType("googleapiclient.discovery")
+stub_googleapiclient.discovery.build = lambda *a, **k: None
+sys.modules["googleapiclient"] = stub_googleapiclient
+sys.modules["googleapiclient.discovery"] = stub_googleapiclient.discovery
+
+stub_google_pkg = types.ModuleType("google")
+stub_google_auth = types.ModuleType("google.auth")
+stub_google_auth.transport = types.ModuleType("google.auth.transport")
+stub_google_auth.transport.requests = types.ModuleType("google.auth.transport.requests")
+stub_google_auth.credentials = types.ModuleType("google.auth.credentials")
+stub_google_auth.transport.requests.Request = type("Request", (), {})
+stub_google_auth.external_account_authorized_user = lambda *args, **kwargs: None
+stub_google_oauth2 = types.ModuleType("google.oauth2")
+stub_google_oauth2.service_account = types.ModuleType("google.oauth2.service_account")
+stub_google_oauth2.credentials = types.ModuleType("google.oauth2.credentials")
+stub_google_oauth2.credentials.Credentials = type("Credentials", (), {})
+
+stub_google_auth_oauthlib = types.ModuleType("google_auth_oauthlib")
+stub_google_auth_oauthlib.flow = types.ModuleType("google_auth_oauthlib.flow")
+stub_google_auth_oauthlib.helpers = types.ModuleType("google_auth_oauthlib.helpers")
+stub_google_auth_oauthlib.flow.InstalledAppFlow = type(
+    "InstalledAppFlow",
+    (),
+    {
+        "from_client_secrets_file": classmethod(lambda cls, *a, **k: cls()),
+        "run_local_server": lambda self, *a, **k: None,
+    },
+)
+
+dummy_settings = types.SimpleNamespace(
+    google_client_secret_file="client_secret.json",
+    google_token_file="token.json",
+    google_scopes="https://www.googleapis.com/auth/calendar.readonly",
+    google_client_id="dummy",
+    google_client_secret="dummy",
+)
+stub_app_config = types.ModuleType("app.config")
+stub_app_config.settings = dummy_settings
+sys.modules["app.config"] = stub_app_config
+
+sys.modules["google"] = stub_google_pkg
+sys.modules["google.auth"] = stub_google_auth
+sys.modules["google.auth.transport"] = stub_google_auth.transport
+sys.modules["google.auth.transport.requests"] = stub_google_auth.transport.requests
+sys.modules["google.auth.credentials"] = stub_google_auth.credentials
+sys.modules["google.oauth2"] = stub_google_oauth2
+sys.modules["google.oauth2.service_account"] = stub_google_oauth2.service_account
+sys.modules["google.oauth2.credentials"] = stub_google_oauth2.credentials
+sys.modules["google_auth_oauthlib"] = stub_google_auth_oauthlib
+sys.modules["google_auth_oauthlib.flow"] = stub_google_auth_oauthlib.flow
+sys.modules["google_auth_oauthlib.helpers"] = stub_google_auth_oauthlib.helpers
+
 from app.integrations.google_calendar_client import GoogleCalendarClient
 from app.utils.date_utils import extract_event_datetime
 
 
-class TestEventSortingForSingleDay:
-    """Test event sorting and filtering for single-day queries."""
-    
-    def create_mock_event(self, event_id: str, summary: str, start_time: datetime) -> dict:
-        """Create a mock Google Calendar event."""
-        return {
-            'id': event_id,
-            'summary': summary,
-            'start': {
-                'dateTime': start_time.isoformat()
-            },
-            'end': {
-                'dateTime': (start_time.replace(hour=start_time.hour + 1)).isoformat()
-            }
-        }
-    
-    def test_get_events_on_date_queries_exact_date_range(self):
-        """
-        Test that get_events_on_date() queries the exact 24-hour window.
-        
-        Verifies:
-        - timeMin = YYYY-MM-DDT00:00:00Z
-        - timeMax = YYYY-MM-DDT23:59:59Z
-        - maxResults = 50
-        """
-        print("\n" + "="*80)
-        print("TEST: get_events_on_date queries exact date range")
-        print("="*80)
-        
-        target_date = date(2025, 10, 29)
-        
-        # Mock the Google Calendar API service
-        mock_service = Mock()
-        captured_params = []
-        
-        def mock_execute():
-            result = Mock()
-            result.get = lambda key, default=None: {
-                'items': [],
-                'nextPageToken': None
-            }.get(key, default)
-            return result
-        
-        mock_list = Mock()
-        mock_list.execute = mock_execute
-        
-        def mock_list_call(**kwargs):
-            captured_params.append(kwargs.copy())
-            return mock_list
-        
-        mock_service.events.return_value.list = mock_list_call
-        
-        client = GoogleCalendarClient()
-        client.service = mock_service
-        
-        events = client.get_events_on_date(target_date)
-        
-        print(f"\n[TEST RESULTS]")
-        if captured_params:
-            params = captured_params[0]
-            time_min = params.get('timeMin', '')
-            time_max = params.get('timeMax', '')
-            max_results = params.get('maxResults')
-            
-            print(f"  timeMin: {time_min}")
-            print(f"  timeMax: {time_max}")
-            print(f"  maxResults: {max_results}")
-            
-            # Verify timeMin format
-            assert time_min.startswith('2025-10-29T00:00:00'), \
-                f"timeMin should start with '2025-10-29T00:00:00', got '{time_min}'"
-            assert time_min.endswith('Z'), \
-                f"timeMin should end with 'Z', got '{time_min}'"
-            
-            # Verify timeMax format
-            assert '2025-10-29T23:59:59' in time_max or '2025-10-29T23:59:59' in time_max, \
-                f"timeMax should contain '2025-10-29T23:59:59', got '{time_max}'"
-            
-            # Verify maxResults
-            assert max_results == 50, \
-                f"maxResults should be 50, got {max_results}"
-            
-            print(f"  ✓ timeMin format correct")
-            print(f"  ✓ timeMax format correct")
-            print(f"  ✓ maxResults = 50")
-        else:
-            pytest.fail("Could not capture request parameters")
-        
-        print("\n✓ TEST PASSED: Exact date range queried correctly")
-    
-    def test_get_events_on_date_only_returns_target_year_events(self):
-        """
-        Test that get_events_on_date() only returns events from the target year.
-        
-        Scenario:
-        - Query for 2025-10-29
-        - Mock returns events from both 2024-10-29 and 2025-10-29
-        - Should only return 2025 events
-        """
-        print("\n" + "="*80)
-        print("TEST: get_events_on_date only returns target year events")
-        print("="*80)
-        
-        target_date = date(2025, 10, 29)
-        
-        # Create mock events: one from 2024, one from 2025
-        event_2024 = self.create_mock_event(
-            'event_2024',
-            '2024 Meeting',
-            datetime(2024, 10, 29, 10, 0, 0, tzinfo=timezone.utc)
-        )
-        
-        event_2025 = self.create_mock_event(
-            'event_2025',
-            '2025 Meeting',
-            datetime(2025, 10, 29, 10, 0, 0, tzinfo=timezone.utc)
-        )
-        
-        # Mock service to return both events
-        mock_service = Mock()
-        
-        def mock_execute():
-            result = {
-                'items': [event_2024, event_2025],
-                'nextPageToken': None
-            }
-            # Create a mock that behaves like a dict
-            mock_result = Mock()
-            mock_result.get = lambda key, default=None: result.get(key, default)
-            return mock_result
-        
-        mock_list = Mock()
-        mock_list.execute = mock_execute
-        mock_service.events.return_value.list.return_value = mock_list
-        
-        client = GoogleCalendarClient()
-        client.service = mock_service
-        
-        events = client.get_events_on_date(target_date)
-        
-        print(f"\n[TEST RESULTS]")
-        print(f"  Target date: {target_date} (year={target_date.year})")
-        print(f"  Events returned: {len(events)}")
-        
-        # Extract years from returned events
-        years = []
-        for event in events:
-            evt_dt = extract_event_datetime(event)
-            if evt_dt:
-                years.append(evt_dt.year)
-                print(f"  Event: {event.get('summary')} - {evt_dt.date()} (year={evt_dt.year})")
-        
-        # Verify all events are from 2025
-        assert all(year == 2025 for year in years), \
-            f"All events should be from 2025, got years: {years}"
-        
-        # Verify 2024 event was filtered out
-        assert len(events) == 1, \
-            f"Should return 1 event (2025), got {len(events)}"
-        assert events[0].get('summary') == '2025 Meeting', \
-            f"Should return 2025 event, got {events[0].get('summary')}"
-        
-        print(f"  ✓ Only 2025 events returned")
-        print(f"  ✓ 2024 event correctly filtered out")
-        
-        print("\n✓ TEST PASSED: Only target year events returned")
-    
-    def test_get_events_on_date_sorts_newest_to_oldest(self):
-        """
-        Test that get_events_on_date() sorts events newest→oldest.
-        
-        Scenario:
-        - Query for 2025-10-29
-        - Mock returns multiple events from same day
-        - Should be sorted with newest (latest time) first
-        """
-        print("\n" + "="*80)
-        print("TEST: get_events_on_date sorts newest→oldest")
-        print("="*80)
-        
-        target_date = date(2025, 10, 29)
-        
-        # Create mock events at different times on the same day
-        event_morning = self.create_mock_event(
-            'event_morning',
-            'Morning Meeting',
-            datetime(2025, 10, 29, 9, 0, 0, tzinfo=timezone.utc)
-        )
-        
-        event_afternoon = self.create_mock_event(
-            'event_afternoon',
-            'Afternoon Meeting',
-            datetime(2025, 10, 29, 14, 0, 0, tzinfo=timezone.utc)
-        )
-        
-        event_evening = self.create_mock_event(
-            'event_evening',
-            'Evening Meeting',
-            datetime(2025, 10, 29, 18, 0, 0, tzinfo=timezone.utc)
-        )
-        
-        # Mock service to return events (API returns in ascending order)
-        mock_service = Mock()
-        
-        def mock_execute():
-            result = {
-                'items': [event_morning, event_afternoon, event_evening],
-                'nextPageToken': None
-            }
-            # Create a mock that behaves like a dict
-            mock_result = Mock()
-            mock_result.get = lambda key, default=None: result.get(key, default)
-            return mock_result
-        
-        mock_list = Mock()
-        mock_list.execute = mock_execute
-        mock_service.events.return_value.list.return_value = mock_list
-        
-        client = GoogleCalendarClient()
-        client.service = mock_service
-        
-        events = client.get_events_on_date(target_date)
-        
-        print(f"\n[TEST RESULTS]")
-        print(f"  Events returned: {len(events)}")
-        
-        # Extract timestamps
-        timestamps = []
-        for i, event in enumerate(events):
-            evt_dt = extract_event_datetime(event)
-            if evt_dt:
-                timestamps.append(evt_dt)
-                print(f"  Event[{i}]: {event.get('summary')} - {evt_dt}")
-        
-        # Verify sorting: should be newest→oldest (descending)
-        assert len(timestamps) == 3, "Should have 3 events"
-        
-        # Check order: newest (evening) → oldest (morning)
-        assert timestamps[0].hour == 18, \
-            f"First event should be newest (evening, 18:00), got {timestamps[0].hour}:00"
-        assert timestamps[1].hour == 14, \
-            f"Second event should be afternoon (14:00), got {timestamps[1].hour}:00"
-        assert timestamps[2].hour == 9, \
-            f"Third event should be oldest (morning, 9:00), got {timestamps[2].hour}:00"
-        
-        # Verify descending order
-        assert timestamps == sorted(timestamps, reverse=True), \
-            "Events should be sorted newest→oldest (descending)"
-        
-        print(f"  ✓ Events sorted newest→oldest")
-        print(f"  ✓ First event: {events[0].get('summary')} (newest)")
-        print(f"  ✓ Last event: {events[-1].get('summary')} (oldest)")
-        
-        print("\n✓ TEST PASSED: Events sorted newest→oldest")
-    
-    def test_get_events_on_date_with_mixed_years_filters_correctly(self):
-        """
-        Test that get_events_on_date() correctly filters when API returns mixed years.
-        
-        Scenario:
-        - Query for 2025-10-29
-        - Mock API returns events from 2024-10-29 and 2025-10-29
-        - Should filter to only 2025-10-29 events
-        - Should sort 2025 events newest→oldest
-        """
-        print("\n" + "="*80)
-        print("TEST: get_events_on_date filters mixed years correctly")
-        print("="*80)
-        
-        target_date = date(2025, 10, 29)
-        
-        # Create mock events from both years
-        event_2024_early = self.create_mock_event(
-            'event_2024_early',
-            '2024 Early Meeting',
-            datetime(2024, 10, 29, 9, 0, 0, tzinfo=timezone.utc)
-        )
-        
-        event_2024_late = self.create_mock_event(
-            'event_2024_late',
-            '2024 Late Meeting',
-            datetime(2024, 10, 29, 15, 0, 0, tzinfo=timezone.utc)
-        )
-        
-        event_2025_early = self.create_mock_event(
-            'event_2025_early',
-            '2025 Early Meeting',
-            datetime(2025, 10, 29, 10, 0, 0, tzinfo=timezone.utc)
-        )
-        
-        event_2025_late = self.create_mock_event(
-            'event_2025_late',
-            '2025 Late Meeting',
-            datetime(2025, 10, 29, 16, 0, 0, tzinfo=timezone.utc)
-        )
-        
-        # Mock service - API returns in ascending order (2024 first, then 2025)
-        mock_service = Mock()
-        
-        def mock_execute():
-            result = {
-                'items': [event_2024_early, event_2024_late, event_2025_early, event_2025_late],
-                'nextPageToken': None
-            }
-            # Create a mock that behaves like a dict
-            mock_result = Mock()
-            mock_result.get = lambda key, default=None: result.get(key, default)
-            return mock_result
-        
-        mock_list = Mock()
-        mock_list.execute = mock_execute
-        mock_service.events.return_value.list.return_value = mock_list
-        
-        client = GoogleCalendarClient()
-        client.service = mock_service
-        
-        events = client.get_events_on_date(target_date)
-        
-        print(f"\n[TEST RESULTS]")
-        print(f"  Target date: {target_date} (year={target_date.year})")
-        print(f"  Events returned: {len(events)}")
-        
-        # Extract years and timestamps
-        years = []
-        timestamps = []
-        for event in events:
-            evt_dt = extract_event_datetime(event)
-            if evt_dt:
-                years.append(evt_dt.year)
-                timestamps.append(evt_dt)
-                print(f"  Event: {event.get('summary')} - {evt_dt} (year={evt_dt.year})")
-        
-        # Verify only 2025 events returned
-        assert all(year == 2025 for year in years), \
-            f"All events should be from 2025, got years: {years}"
-        
-        assert len(events) == 2, \
-            f"Should return 2 events (both 2025), got {len(events)}"
-        
-        # Verify sorting: newest→oldest
-        assert timestamps == sorted(timestamps, reverse=True), \
-            "Events should be sorted newest→oldest"
-        
-        # Verify newest event is first
-        assert events[0].get('summary') == '2025 Late Meeting', \
-            f"First event should be newest (Late Meeting), got {events[0].get('summary')}"
-        
-        print(f"  ✓ Only 2025 events returned")
-        print(f"  ✓ Events sorted newest→oldest")
-        print(f"  ✓ First event is newest (2025 Late Meeting)")
-        
-        print("\n✓ TEST PASSED: Mixed years filtered and sorted correctly")
+class MockEventsList:
+    def __init__(self, pages):
+        self.pages = pages
+        self.call_count = 0
+        self.captured_params = []
+
+    def list(self, **kwargs):
+        self.captured_params.append(kwargs.copy())
+        return self
+
+    def execute(self):
+        page = self.pages[self.call_count]
+        self.call_count += 1
+        return page
 
 
-if __name__ == '__main__':
-    pytest.main([__file__, '-v', '-s'])
+class MockService:
+    def __init__(self, pages):
+        self.events_list = MockEventsList(pages)
+
+    def events(self):
+        return self.events_list
+
+
+def make_event(event_id, summary, iso_datetime):
+    return {
+        "id": event_id,
+        "summary": summary,
+        "start": {"dateTime": iso_datetime},
+        "end": {"dateTime": iso_datetime},
+    }
+
+
+def test_get_events_on_date_filters_year_and_sorts_newest_first():
+    target_date = _dt_date(2025, 10, 29)
+
+    page1_events = [
+        make_event("evt-2024", "Old 2024 event", "2024-10-29T09:00:00Z"),
+        make_event("evt-2025-1", "2025 morning", "2025-10-29T09:00:00Z"),
+    ]
+    page2_events = [
+        make_event("evt-2025-2", "2025 evening", "2025-10-29T18:00:00Z"),
+    ]
+
+    pages = [
+        {"items": page1_events, "nextPageToken": "token-2"},
+        {"items": page2_events, "nextPageToken": None},
+    ]
+
+    mock_service = MockService(pages)
+    client = object.__new__(GoogleCalendarClient)
+    client.service = mock_service
+
+    events = client.get_events_on_date(target_date)
+
+    # Assert query params
+    assert mock_service.events_list.captured_params, "No requests captured"
+    params = mock_service.events_list.captured_params[0]
+    assert params["timeMin"].startswith("2025-10-29T00:00:00")
+    assert params["timeMax"].startswith("2025-10-29T23:59:59")
+    assert params["maxResults"] == 50
+    assert params["singleEvents"] is True
+    assert params["orderBy"] == "startTime"
+
+    # Only 2025 events should remain
+    assert len(events) == 2
+    years = [extract_event_datetime(e).year for e in events]
+    assert all(y == 2025 for y in years)
+
+    # Sorted newest -> oldest
+    times = [extract_event_datetime(e) for e in events]
+    assert times == sorted(times, reverse=True)
 

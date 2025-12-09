@@ -31,6 +31,11 @@ IMPORTANT EXTRACTION RULES:
      * Relative: "yesterday", "last week", "two days ago"
    - CRITICAL: When a user specifies a date (e.g., "on November 21st", "11/21", "the 21st"), 
      this means they want events from THAT EXACT DATE ONLY, not nearby dates.
+   - YEAR inference (CRITICAL):
+     * If the user explicitly specifies a year (e.g., "October 29, 2024", "11/21/2024"), always use that year.
+     * If the user does NOT specify a year (e.g., "October 29th", "November 21st"), ALWAYS assume the current calendar year based on the system date.
+     * Do NOT infer a different year based on context, history, or prior meetings unless the user explicitly states it.
+     * Prefer returning dates in ISO format (YYYY-MM-DD) when a year is present, otherwise use the natural form as written.
    - For natural language dates, preserve the original format but also try to extract the date components
    - Examples:
      * "Summarize my MTCA meeting on November 21st" → date: "November 21st" or "2024-11-21" (EXACT DATE REQUIRED)

@@ -27,7 +27,8 @@ class MeetingFinder:
         meeting_id: Optional[int] = None,
         client_id: Optional[int] = None,
         user_id: Optional[int] = None,
-        client_name: Optional[str] = None
+        client_name: Optional[str] = None,
+        target_date: Optional[datetime] = None
     ) -> Optional[int]:
         """
         Find a meeting in the database.
@@ -37,7 +38,7 @@ class MeetingFinder:
             from datetime import datetime, timezone
             
             print(f"      [MeetingFinder] find_meeting_in_database called")
-            print(f"         meeting_id={meeting_id}, client_id={client_id}, user_id={user_id}, client_name={client_name}")
+            print(f"         meeting_id={meeting_id}, client_id={client_id}, user_id={user_id}, client_name={client_name}, target_date={target_date}")
             
             # If meeting_id is provided, verify it exists
             if meeting_id:
@@ -55,6 +56,8 @@ class MeetingFinder:
             else:
                 now_aware = now
             
+            target_date_only = target_date.date() if target_date else None
+            
             # Search by client name first
             if client_name and user_id:
                 print(f"         🔍 Searching by client_name='{client_name}' for user_id={user_id}...")
@@ -68,12 +71,25 @@ class MeetingFinder:
                     past_meetings = self._filter_past_meetings(meetings, now_aware)
                     print(f"         Filtered to {len(past_meetings)} past meetings")
                     if past_meetings:
+                        if target_date_only:
+                            date_matched = [
+                                m for m in past_meetings
+                                if m.scheduled_time and m.scheduled_time.date() == target_date_only
+                            ]
+                            if date_matched:
+                                print(f"         ✅ Returning date-matched meeting: {date_matched[0].id} - {date_matched[0].title}")
+                                return date_matched[0].id
+                            else:
+                                print(f"         ❌ No past meetings found for client on target_date={target_date_only}")
+                                return None
                         print(f"         ✅ Returning most recent: {past_meetings[0].id} - {past_meetings[0].title}")
                         return past_meetings[0].id
                     else:
                         print(f"         ❌ No past meetings found for client")
                 else:
                     print(f"         ❌ No clients found matching '{client_name}'")
+                # If client_name was provided but no meeting found, do not fall back to user-level search
+                return None
             
             # Search by client_id
             if client_id:
@@ -83,11 +99,24 @@ class MeetingFinder:
                 past_meetings = self._filter_past_meetings(meetings, now_aware)
                 print(f"         Filtered to {len(past_meetings)} past meetings")
                 if past_meetings:
+                    if target_date_only:
+                        date_matched = [
+                            m for m in past_meetings
+                            if m.scheduled_time and m.scheduled_time.date() == target_date_only
+                        ]
+                        if date_matched:
+                            print(f"         ✅ Returning date-matched meeting: {date_matched[0].id} - {date_matched[0].title}")
+                            return date_matched[0].id
+                        else:
+                            print(f"         ❌ No past meetings found for client on target_date={target_date_only}")
+                            return None
                     print(f"         ✅ Returning most recent: {past_meetings[0].id} - {past_meetings[0].title}")
                     return past_meetings[0].id
+                # If client_id was provided but no meeting found, do not fall back to user-level search
+                return None
             
             # Search by user_id
-            if user_id:
+            if user_id and not client_name and not client_id:
                 print(f"         🔍 Searching by user_id={user_id}...")
                 meetings = self.memory.get_meetings_by_user(user_id, limit=50)
                 print(f"         Found {len(meetings)} meetings")

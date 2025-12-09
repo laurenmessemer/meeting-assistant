@@ -92,6 +92,10 @@ class DataPreparator:
                         else:
                             parsed = datetime.strptime(f"{month_name} {day} {year}", f"{date_format} %Y")
                         
+                        # Make timezone-aware before comparison
+                        if parsed.tzinfo is None:
+                            parsed = parsed.replace(tzinfo=timezone.utc)
+                        
                         # If date is in the future, use previous year
                         if parsed > now:
                             year = current_year - 1
@@ -99,8 +103,12 @@ class DataPreparator:
                                 parsed = datetime.strptime(f"{day} {month_name} {year}", f"{date_format} %Y")
                             else:
                                 parsed = datetime.strptime(f"{month_name} {day} {year}", f"{date_format} %Y")
+                            
+                            # Make timezone-aware
+                            if parsed.tzinfo is None:
+                                parsed = parsed.replace(tzinfo=timezone.utc)
                         
-                        return parsed.replace(tzinfo=timezone.utc)
+                        return parsed
                     except ValueError:
                         continue
             
@@ -149,9 +157,16 @@ class DataPreparator:
                         year = current_year
                         try:
                             parsed = datetime.strptime(f"{month_name} {numeric} {year}", f"{month_format} %d %Y")
+                            # Make timezone-aware before comparison
+                            if parsed.tzinfo is None:
+                                parsed = parsed.replace(tzinfo=timezone.utc)
+                            
                             if parsed > now:
                                 parsed = datetime.strptime(f"{month_name} {numeric} {year - 1}", f"{month_format} %d %Y")
-                            return parsed.replace(tzinfo=timezone.utc)
+                                # Make timezone-aware
+                                if parsed.tzinfo is None:
+                                    parsed = parsed.replace(tzinfo=timezone.utc)
+                            return parsed
                         except ValueError:
                             pass
             
@@ -231,6 +246,11 @@ class DataPreparator:
         Returns:
             Dict with meeting_id, selected_meeting_number, calendar_event_id, target_date, client_name
         """
+        print(f"\n[DEBUG DATA] DataPreparator.extract_meeting_selection() called")
+        print(f"   INPUT: message='{message}'")
+        print(f"   INPUT: extracted_info={extracted_info}")
+        print(f"   INPUT: selected_meeting_id={selected_meeting_id}, selected_calendar_event_id={selected_calendar_event_id}")
+        
         result = {
             "meeting_id": None,
             "selected_meeting_number": None,
@@ -241,11 +261,15 @@ class DataPreparator:
         
         # Handle UI selections
         if selected_meeting_id:
+            print(f"   BRANCH: UI selection - meeting_id provided")
             result["meeting_id"] = selected_meeting_id
+            print(f"   OUTPUT: {result}")
             return result
         
         if selected_calendar_event_id:
+            print(f"   BRANCH: UI selection - calendar_event_id provided")
             result["calendar_event_id"] = selected_calendar_event_id
+            print(f"   OUTPUT: {result}")
             return result
         
         # Parse from message
@@ -271,10 +295,63 @@ class DataPreparator:
                     break
         
         if extracted_date:
-            result["target_date"] = self.parse_date(extracted_date)
+            print(f"   BRANCH: Date found in extracted_info: '{extracted_date}'")
+            
+            # Year correction: Fix LLM wrong-year outputs when user didn't specify a year
+            iso_match = re.match(r'^(\d{4})-(\d{2})-(\d{2})$', extracted_date)
+            if iso_match:
+                year = int(iso_match.group(1))
+                current_year = datetime.now(timezone.utc).year
+                
+                # Check if year differs from current year
+                if year != current_year:
+                    # Check if user explicitly mentioned the year in the message
+                    year_str = str(year)
+                    year_short = f"{year % 100:02d}"  # e.g., "24" for 2024
+                    
+                    if year_str not in message and year_short not in message:
+                        # User didn't specify year, convert to natural language format
+                        month = int(iso_match.group(2))
+                        day = int(iso_match.group(3))
+                        
+                        month_names = ['', 'January', 'February', 'March', 'April', 'May', 'June',
+                                      'July', 'August', 'September', 'October', 'November', 'December']
+                        
+                        # Convert to natural language format: "October 29"
+                        extracted_date = f"{month_names[month]} {day}"
+                        print(f"   🔧 YEAR CORRECTION: LLM provided year={year}, but user didn't specify. Converting to '{extracted_date}' for parse_date()")
+            
+            parsed_date = self.parse_date(extracted_date)
+            result["target_date"] = parsed_date
+            print(f"   PARSED DATE: {parsed_date} (year={parsed_date.year if parsed_date else None})")
+        else:
+            print(f"   BRANCH: No date in extracted_info, trying direct message extraction...")
+            # Try to extract date directly from message
+            date_patterns = [
+                r'\b(january|february|march|april|may|june|july|august|september|october|november|december)\s+(\d{1,2})(?:st|nd|rd|th)?\b',
+                r'\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\s+(\d{1,2})(?:st|nd|rd|th)?\b',
+                r'\b(\d{1,2})(?:st|nd|rd|th)?\s+(?:of\s+)?(january|february|march|april|may|june|july|august|september|october|november|december)\b',
+                r'\b(\d{1,2})(?:st|nd|rd|th)?\s+(?:of\s+)?(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\b',
+                r'\b(?:the\s+)?(\d{1,2})(?:st|nd|rd|th)\b',
+                r'\b\d{4}-\d{2}-\d{2}\b',
+                r'\b\d{1,2}/\d{1,2}(?:/\d{2,4})?\b',
+                r'\b\d{1,2}-\d{1,2}-\d{4}\b',
+            ]
+            
+            for pattern in date_patterns:
+                match = re.search(pattern, message, re.IGNORECASE)
+                if match:
+                    extracted_date = match.group(0)
+                    print(f"   ✅ Found date pattern in message: '{extracted_date}'")
+                    parsed_date = self.parse_date(extracted_date)
+                    result["target_date"] = parsed_date
+                    print(f"   PARSED DATE: {parsed_date} (year={parsed_date.year if parsed_date else None})")
+                    break
         
         # Extract client name
+        print(f"   BRANCH: Extracting client_name...")
         result["client_name"] = self.extract_client_name(message, extracted_info)
+        print(f"   EXTRACTED CLIENT_NAME: '{result['client_name']}'")
         
         # Extract meeting number (but be careful about dates)
         has_date_in_message = extracted_date is not None
@@ -313,5 +390,6 @@ class DataPreparator:
         if calendar_event_match:
             result["calendar_event_id"] = calendar_event_match.group(1)
         
+        print(f"   OUTPUT: {result}")
         return result
 

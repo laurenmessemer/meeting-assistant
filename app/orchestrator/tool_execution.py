@@ -67,11 +67,19 @@ class ToolExecutor:
         client_id: Optional[int]
     ) -> Dict[str, Any]:
         """Prepare data for summarization tool."""
+        print(f"\n[DEBUG TOOL] ToolExecutor._prepare_summarization_data() called")
+        print(f"   INPUT: prepared_data={prepared_data}")
+        print(f"   INPUT: user_id={user_id}, client_id={client_id}")
+        
         meeting_id = prepared_data.get("meeting_id")
         calendar_event_id = prepared_data.get("calendar_event_id")
         client_name = prepared_data.get("client_name")
         target_date = prepared_data.get("target_date")
         selected_meeting_number = prepared_data.get("selected_meeting_number")
+        
+        print(f"   EXTRACTED: meeting_id={meeting_id}, calendar_event_id={calendar_event_id}")
+        print(f"   EXTRACTED: client_name='{client_name}', target_date={target_date}")
+        print(f"   EXTRACTED: selected_meeting_number={selected_meeting_number}")
         
         result = {
             "meeting_id": None,
@@ -82,18 +90,25 @@ class ToolExecutor:
         
         # Find meeting in database first
         if not meeting_id:
+            print(f"   BRANCH: No meeting_id, searching database...")
             meeting_finder = MeetingFinder(self.db, self.memory)
-            meeting_id = meeting_finder.find_meeting_in_database(
+            print(f"   CALLING: find_meeting_in_database(client_id={client_id}, user_id={user_id}, client_name='{client_name}', target_date={target_date})")
+            db_meeting_id = meeting_finder.find_meeting_in_database(
                 meeting_id=meeting_id,
                 client_id=client_id,
                 user_id=user_id,
-                client_name=client_name
+                client_name=client_name,
+                target_date=target_date
             )
+            print(f"   RESULT: find_meeting_in_database returned meeting_id={db_meeting_id}")
+            meeting_id = db_meeting_id
         
         # If we have a meeting_id, get data from database
         if meeting_id:
+            print(f"   BRANCH: meeting_id found ({meeting_id}), fetching from database...")
             meeting = self.memory.get_meeting_by_id(meeting_id)
             if meeting:
+                print(f"   ✅ Meeting found in DB: {meeting.title} (scheduled_time={meeting.scheduled_time})")
                 result["meeting_id"] = meeting_id
                 result["structured_data"] = {
                     "transcript": meeting.transcript,
@@ -103,10 +118,15 @@ class ToolExecutor:
                     "attendees": meeting.attendees,
                     "has_transcript": meeting.transcript is not None
                 }
+                print(f"   OUTPUT: Returning DB meeting data")
                 return result
+            else:
+                print(f"   ❌ Meeting {meeting_id} not found in DB")
         
         # If no meeting in database, search calendar
         if not meeting_id:
+            print(f"   BRANCH: No meeting_id, searching calendar...")
+            print(f"   CALLING: find_meeting_in_calendar(client_name='{client_name}', target_date={target_date}, user_id={user_id})")
             meeting_finder = MeetingFinder(self.db, self.memory)
             calendar_event, meeting_options = meeting_finder.find_meeting_in_calendar(
                 client_name=client_name,
@@ -115,21 +135,27 @@ class ToolExecutor:
                 calendar_event_id=calendar_event_id,
                 user_id=user_id
             )
+            print(f"   RESULT: find_meeting_in_calendar returned calendar_event={calendar_event is not None}, meeting_options={meeting_options is not None}")
             
             # If meeting options are returned, user needs to select
             if meeting_options:
+                print(f"   BRANCH: meeting_options returned ({len(meeting_options)} options)")
                 result["meeting_options"] = meeting_options
+                print(f"   OUTPUT: Returning meeting options for user selection")
                 return result
             
             # If we have a calendar event, process it
             if calendar_event:
+                print(f"   BRANCH: calendar_event found, processing...")
                 event_data = await self.integration_data_fetcher.process_calendar_event_for_summarization(
                     calendar_event, user_id, client_id
                 )
                 if event_data.get("error"):
+                    print(f"   ❌ ERROR processing calendar event: {event_data.get('error')}")
                     result["error"] = event_data["error"]
                     return result
                 
+                print(f"   ✅ Calendar event processed, meeting_id={event_data.get('meeting_id')}")
                 result["calendar_event"] = calendar_event
                 result["meeting_id"] = event_data.get("meeting_id")
                 result["structured_data"] = {
@@ -140,7 +166,10 @@ class ToolExecutor:
                     "attendees": event_data.get("attendees"),
                     "has_transcript": event_data.get("has_transcript", False)
                 }
+            else:
+                print(f"   ❌ No calendar_event found")
         
+        print(f"   OUTPUT: {result}")
         return result
     
     async def _prepare_meeting_brief_data(
