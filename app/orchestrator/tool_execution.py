@@ -11,6 +11,7 @@ from app.orchestrator.meeting_finder import MeetingFinder
 from app.memory.schemas import MeetingUpdate, DecisionCreate
 from app.utils.date_utils import format_datetime_display
 from app.utils.date_utils import extract_event_datetime
+from datetime import datetime
 
 
 class ToolExecutor:
@@ -212,6 +213,41 @@ class ToolExecutor:
             print(f"   BRANCH: meeting_id found ({meeting_id}), fetching from database...")
             meeting = self.memory.get_meeting_by_id(meeting_id)
             if meeting:
+                # VALIDATION A4.1: Validate database meeting date matches target_date
+                if target_date and meeting.scheduled_time:
+                    if meeting.scheduled_time.date() != target_date.date():
+                        return {
+                            "tool_name": "summarization",
+                            "error": f"Meeting date ({meeting.scheduled_time.date()}) does not match requested date ({target_date.date()})"
+                        }
+                
+                # VALIDATION A4.2: Validate year if user did NOT specify a year
+                date_text = prepared_data.get("date_text")
+                if date_text and meeting.scheduled_time:
+                    # Check if date_text contains a year digit (4-digit year)
+                    import re
+                    has_year = bool(re.search(r'\d{4}', date_text))
+                    if not has_year:
+                        # User did not specify year, validate against current year
+                        current_year = datetime.now().year
+                        if meeting.scheduled_time.year != current_year:
+                            return {
+                                "tool_name": "summarization",
+                                "error": f"Meeting year ({meeting.scheduled_time.year}) does not match current year ({current_year})"
+                            }
+                
+                # VALIDATION A4.3: Validate calendar event date (if present) matches meeting date
+                if calendar_event_id and meeting.scheduled_time:
+                    from app.integrations.google_calendar_client import get_calendar_event_by_id
+                    calendar_event = get_calendar_event_by_id(calendar_event_id)
+                    if calendar_event:
+                        event_dt = extract_event_datetime(calendar_event)
+                        if event_dt and event_dt.date() != meeting.scheduled_time.date():
+                            return {
+                                "tool_name": "summarization",
+                                "error": "Calendar event date does not match the database meeting date"
+                            }
+                
                 print(f"   ✅ Meeting found in DB: {meeting.title} (scheduled_time={meeting.scheduled_time})")
                 result["meeting_id"] = meeting_id
                 result["structured_data"] = {
