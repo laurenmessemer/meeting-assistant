@@ -92,6 +92,41 @@ guide them on how to use the assistant."""
             # Get structured summary data - the summary_text already contains the full structured format
             summary_text = tool_result.get("summary", "")
             
+            # DIAGNOSTIC: Log incoming summarization payload
+            print(f"\n[DIAGNOSTIC SYNTHESIS] synthesize() - SUMMARIZATION")
+            print(f"   incoming summarization payload:")
+            print(f"      summary_length: {len(summary_text)} characters")
+            print(f"      summary_preview (first 300 chars): {summary_text[:300] if summary_text else 'N/A'}...")
+            print(f"      tool_result keys: {list(tool_result.keys())}")
+            print(f"      meeting_title: '{tool_result.get('meeting_title', 'N/A')}'")
+            print(f"      meeting_date: '{tool_result.get('meeting_date', 'N/A')}'")
+            print(f"      attendees: '{tool_result.get('attendees', 'N/A')}'")
+            
+            # DIAGNOSTIC: Try to infer client_name from summary or context
+            inferred_client = None
+            if summary_text:
+                # Try to extract client name from summary text (look for common patterns)
+                import re
+                # Look for patterns like "MTCA", "Good Health", etc. in the summary
+                client_patterns = [
+                    r'\b(MTCA|Good Health|IBM|Microsoft)\b',  # Common client names
+                ]
+                for pattern in client_patterns:
+                    match = re.search(pattern, summary_text, re.IGNORECASE)
+                    if match:
+                        inferred_client = match.group(1)
+                        break
+            
+            # Also check context for client_name
+            context_client = context.get("client_name") or context.get("extracted_info", {}).get("client_name")
+            system_client = context_client or inferred_client
+            
+            print(f"   system thinks meeting belongs to client: '{system_client}'")
+            print(f"      (inferred from summary: '{inferred_client}', from context: '{context_client}')")
+            
+            # DIAGNOSTIC: Log pipeline branch
+            print(f"   pipeline branch: general (summarization tool output returned directly)")
+            
             # The summary_text from summarization tool already includes:
             # - Meeting Header (title)
             # - Date from calendar
@@ -101,6 +136,12 @@ guide them on how to use the assistant."""
             # - Action Items (for Client and User)
             # - Conclusion
             # So we can return it directly for the UI to format
+            
+            # DIAGNOSTIC: Log final returned content
+            final_preview = summary_text[:500] + "..." if len(summary_text) > 500 else summary_text
+            print(f"   final synthesized summary (returned to frontend):")
+            print(f"      length: {len(summary_text)} characters")
+            print(f"      preview (first 500 chars): {final_preview}")
             
             return summary_text
         

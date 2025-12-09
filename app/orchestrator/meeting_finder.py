@@ -205,9 +205,22 @@ class MeetingFinder:
                     print(f"         📅 EXACT DATE MODE: Target date provided: {target_date_only}")
                     print(f"         🔍 Fetching ALL events on EXACT date: {target_date_only}")
                     
+                    # DIAGNOSTIC: Log target_date
+                    print(f"\n[DIAGNOSTIC CALENDAR] find_meeting_in_calendar() - EXACT DATE MODE")
+                    print(f"   target_date: {target_date} (date_only: {target_date_only})")
+                    print(f"   client_name: '{client_name}'")
+                    
                     # Get ALL events on that exact date
                     events_on_date = get_calendar_events_on_date(target_date_only)
                     print(f"         ✅ Found {len(events_on_date)} total events on {target_date_only}")
+                    
+                    # DIAGNOSTIC: Log all events returned from Google API
+                    print(f"   [DIAGNOSTIC] All events from Google API ({len(events_on_date)} total):")
+                    for i, evt in enumerate(events_on_date[:10], 1):  # Log first 10
+                        evt_summary = evt.get('summary', 'Untitled')
+                        evt_id = evt.get('id', 'N/A')
+                        evt_start = evt.get('start', {}).get('dateTime', evt.get('start', {}).get('date', 'N/A'))
+                        print(f"      event[{i}]: '{evt_summary}' (id={evt_id[:20]}..., start={evt_start})")
                     
                     # Filter by client name (keyword)
                     client_name_lower = client_name.lower()
@@ -219,6 +232,14 @@ class MeetingFinder:
                     ]
                     
                     print(f"         ✅ Found {len(matching_events)} events matching client '{client_name}' on {target_date_only}")
+                    
+                    # DIAGNOSTIC: Log filtered events matching client
+                    print(f"   [DIAGNOSTIC] Filtered events matching client '{client_name}' ({len(matching_events)} matches):")
+                    for i, evt in enumerate(matching_events[:10], 1):  # Log first 10
+                        evt_summary = evt.get('summary', 'Untitled')
+                        evt_id = evt.get('id', 'N/A')
+                        evt_start = evt.get('start', {}).get('dateTime', evt.get('start', {}).get('date', 'N/A'))
+                        print(f"      match[{i}]: '{evt_summary}' (id={evt_id[:20]}..., start={evt_start})")
                     
                     # Filter to past events only (in case target_date is today)
                     now = datetime.now(timezone.utc)
@@ -250,6 +271,17 @@ class MeetingFinder:
                     # ALWAYS return options for user selection (even if only one match)
                     # This allows user to confirm before we fetch transcript
                     print(f"         📋 Found {len(matching_events)} event(s), returning options for user selection")
+                    
+                    # DIAGNOSTIC: Log final chosen event (if only one match, it's the chosen one)
+                    if len(matching_events) == 1:
+                        final_event = matching_events[0]
+                        print(f"   [DIAGNOSTIC] Final chosen event (single match):")
+                        print(f"      summary: '{final_event.get('summary', 'N/A')}'")
+                        print(f"      id: '{final_event.get('id', 'N/A')}'")
+                        print(f"      start: {final_event.get('start', {}).get('dateTime', 'N/A')}")
+                    elif len(matching_events) > 1:
+                        print(f"   [DIAGNOSTIC] Multiple matches - returning options (no single chosen event)")
+                    
                     return None, self._create_meeting_options(matching_events, client_name, user_id)
                 else:
                     # No target date - search recent past (last 90 days)

@@ -21,7 +21,10 @@ class SummarizationTool:
         recording_date: Optional[str] = None,
         attendees: Optional[str] = None,
         has_transcript: bool = True,
-        past_context: Optional[List[Dict[str, Any]]] = None
+        past_context: Optional[List[Dict[str, Any]]] = None,
+        meeting_id: Optional[int] = None,
+        calendar_event_id: Optional[str] = None,
+        user_id: Optional[int] = None
     ) -> Dict[str, Any]:
         """
         Summarize a meeting and extract decisions/actions.
@@ -34,10 +37,22 @@ class SummarizationTool:
             attendees: Comma-separated list of attendee names
             has_transcript: Whether transcript is available (default: True)
             past_context: Optional list of past meeting memories for context
+            meeting_id: Optional meeting ID for diagnostic logging
+            calendar_event_id: Optional calendar event ID for diagnostic logging
+            user_id: Optional user ID for diagnostic logging
         
         Returns:
             Dictionary with summary, decisions, and metadata
         """
+        # DIAGNOSTIC: Log meeting identifiers
+        print(f"\n[DIAGNOSTIC SUMMARIZATION] summarize_meeting() called")
+        print(f"   meeting_id: {meeting_id}")
+        print(f"   calendar_event_id: '{calendar_event_id}'")
+        print(f"   user_id: {user_id}")
+        print(f"   meeting_title: '{meeting_title}'")
+        print(f"   meeting_date: '{meeting_date}'")
+        print(f"   has_transcript: {has_transcript}")
+        
         # Validate input
         if has_transcript and not transcript:
             return {
@@ -49,6 +64,15 @@ class SummarizationTool:
         date_str = meeting_date or "Unknown date"
         recording_date_str = recording_date or "N/A"
         attendees_display = attendees or "Not specified"
+        
+        # DIAGNOSTIC: Log transcript/notes being sent to LLM
+        if has_transcript and transcript:
+            transcript_preview = transcript[:500] + "..." if len(transcript) > 500 else transcript
+            print(f"   [DIAGNOSTIC] Transcript/notes being sent to LLM:")
+            print(f"      length: {len(transcript)} characters")
+            print(f"      preview (first 500 chars): {transcript_preview}")
+        else:
+            print(f"   [DIAGNOSTIC] No transcript available - using calendar-only information")
         
         # Synthesize memory insights if past_context provided
         insights = {
@@ -161,12 +185,26 @@ Please create a summary with the following EXACT structure and formatting:
 
 Format your response using the EXACT section headers shown above (with # and ## markdown formatting). Be clear, concise, and well-organized."""
         
+        # DIAGNOSTIC: Log LLM request structure (not sensitive keys)
+        print(f"   [DIAGNOSTIC] LLM request structure:")
+        print(f"      prompt_length: {len(prompt)} characters")
+        print(f"      system_prompt_length: {len(SUMMARIZATION_TOOL_PROMPT) if SUMMARIZATION_TOOL_PROMPT else 0} characters")
+        print(f"      response_format: text")
+        print(f"      temperature: 0.3")
+        print(f"      prompt_preview (first 300 chars): {prompt[:300]}...")
+        
         summary_text = self.llm.llm_chat(
             prompt=prompt,
             system_prompt=SUMMARIZATION_TOOL_PROMPT,
             response_format="text",
             temperature=0.3,  # Lower temperature for more factual summaries
         )
+        
+        # DIAGNOSTIC: Log raw LLM response before post-processing
+        summary_preview = summary_text[:500] + "..." if len(summary_text) > 500 else summary_text
+        print(f"   [DIAGNOSTIC] Raw LLM response (before post-processing):")
+        print(f"      length: {len(summary_text)} characters")
+        print(f"      preview (first 500 chars): {summary_preview}")
         
         # Extract structured data (decisions only) using LLM - skip if no transcript
         decisions = []

@@ -81,12 +81,91 @@ class ToolExecutor:
         print(f"   EXTRACTED: client_name='{client_name}', target_date={target_date}")
         print(f"   EXTRACTED: selected_meeting_number={selected_meeting_number}")
         
+        # EARLY EXIT FIX: If the user selected a calendar event, use it directly.
+        # This prevents database fallback from triggering when a calendar event is explicitly chosen.
+        if calendar_event_id:
+            print(f"   [EARLY EXIT] calendar_event_id provided ({calendar_event_id}), bypassing DB lookup and using calendar event directly")
+            
+            # Fetch the calendar event directly by ID
+            from app.integrations.google_calendar_client import get_calendar_event_by_id
+            try:
+                calendar_event = get_calendar_event_by_id(calendar_event_id)
+                if calendar_event:
+                    print(f"   ✅ Successfully fetched calendar event: {calendar_event.get('summary', 'Untitled')}")
+                    
+                    # Process the calendar event immediately (same as existing flow)
+                    event_data = await self.integration_data_fetcher.process_calendar_event_for_summarization(
+                        calendar_event, user_id, client_id
+                    )
+                    
+                    if event_data.get("error"):
+                        print(f"   ❌ ERROR processing calendar event: {event_data.get('error')}")
+                        result = {
+                            "meeting_id": None,
+                            "calendar_event": None,
+                            "meeting_options": None,
+                            "structured_data": None,
+                            "error": event_data["error"]
+                        }
+                        
+                        # DIAGNOSTIC: Log error case
+                        print(f"\n[DIAGNOSTIC SUMMARY] _prepare_summarization_data() - CALENDAR_EVENT_SELECTED_ERROR (EARLY EXIT)")
+                        print(f"   message: '{prepared_data.get('message', 'N/A')}'")
+                        print(f"   selected calendar_event_id: {calendar_event_id}")
+                        print(f"   error: {event_data.get('error')}")
+                        
+                        return result
+                    
+                    # Successfully processed calendar event
+                    result = {
+                        "meeting_id": event_data.get("meeting_id"),
+                        "calendar_event": calendar_event,
+                        "meeting_options": None,
+                        "structured_data": {
+                            "transcript": event_data.get("transcript"),
+                            "meeting_title": event_data.get("meeting_title"),
+                            "meeting_date": event_data.get("meeting_date"),
+                            "recording_date": event_data.get("recording_date"),
+                            "attendees": event_data.get("attendees"),
+                            "has_transcript": event_data.get("has_transcript", False)
+                        }
+                    }
+                    
+                    # DIAGNOSTIC: Log early exit success
+                    print(f"\n[DIAGNOSTIC SUMMARY] _prepare_summarization_data() - CALENDAR_EVENT_SELECTED (EARLY EXIT)")
+                    print(f"   message: '{prepared_data.get('message', 'N/A')}'")
+                    print(f"   client_name: '{client_name}'")
+                    print(f"   target_date: {target_date}")
+                    print(f"   selected meeting_id: {meeting_id}")
+                    print(f"   selected calendar_event_id: {calendar_event_id}")
+                    print(f"   meeting source: CALENDAR_EVENT_SELECTED (bypassing all DB/fallback logic)")
+                    print(f"   calendar_event metadata:")
+                    print(f"      - summary: '{calendar_event.get('summary', 'N/A')}'")
+                    print(f"      - id: '{calendar_event.get('id', 'N/A')}'")
+                    print(f"      - start: {calendar_event.get('start', {}).get('dateTime', 'N/A')}")
+                    print(f"   event_data metadata:")
+                    print(f"      - meeting_id: {event_data.get('meeting_id')}")
+                    print(f"      - meeting_title: '{event_data.get('meeting_title', 'N/A')}'")
+                    print(f"      - meeting_date: '{event_data.get('meeting_date', 'N/A')}'")
+                    print(f"      - has_transcript: {event_data.get('has_transcript', False)}")
+                    print(f"      - transcript_length: {len(event_data.get('transcript', '')) if event_data.get('transcript') else 0}")
+                    
+                    return result
+                else:
+                    print(f"   ⚠️ Calendar event {calendar_event_id} not found, falling through to normal flow")
+            except Exception as e:
+                print(f"   ❌ Error fetching calendar event by ID: {e}, falling through to normal flow")
+                # Fall through to normal flow if fetch fails
+        
         result = {
             "meeting_id": None,
             "calendar_event": None,
             "meeting_options": None,
             "structured_data": None
         }
+        
+        # DIAGNOSTIC: Track original meeting_id to distinguish user selection from DB lookup
+        original_meeting_id = meeting_id
         
         # Find meeting in database first
         if not meeting_id:
@@ -119,6 +198,24 @@ class ToolExecutor:
                     "has_transcript": meeting.transcript is not None
                 }
                 print(f"   OUTPUT: Returning DB meeting data")
+                
+                # DIAGNOSTIC: Log meeting source and metadata
+                meeting_source = "USER_SELECTED" if original_meeting_id else "DB_MATCH"
+                print(f"\n[DIAGNOSTIC SUMMARY] _prepare_summarization_data() - {meeting_source}")
+                print(f"   message: '{prepared_data.get('message', 'N/A')}'")
+                print(f"   client_name: '{client_name}'")
+                print(f"   target_date: {target_date}")
+                print(f"   selected meeting_id: {meeting_id}")
+                print(f"   selected calendar_event_id: {calendar_event_id}")
+                print(f"   meeting source: {meeting_source}")
+                print(f"   meeting metadata:")
+                print(f"      - title: '{meeting.title}'")
+                print(f"      - scheduled_time: {meeting.scheduled_time}")
+                print(f"      - client_id: {meeting.client_id}")
+                print(f"      - calendar_event_id: {meeting.calendar_event_id}")
+                print(f"      - has_transcript: {meeting.transcript is not None}")
+                print(f"      - transcript_length: {len(meeting.transcript) if meeting.transcript else 0}")
+                
                 return result
             else:
                 print(f"   ❌ Meeting {meeting_id} not found in DB")
@@ -142,6 +239,21 @@ class ToolExecutor:
                 print(f"   BRANCH: meeting_options returned ({len(meeting_options)} options)")
                 result["meeting_options"] = meeting_options
                 print(f"   OUTPUT: Returning meeting options for user selection")
+                
+                # DIAGNOSTIC: Log meeting source and metadata
+                print(f"\n[DIAGNOSTIC SUMMARY] _prepare_summarization_data() - USER_SELECTION_REQUIRED")
+                print(f"   message: '{prepared_data.get('message', 'N/A')}'")
+                print(f"   client_name: '{client_name}'")
+                print(f"   target_date: {target_date}")
+                print(f"   selected meeting_id: {meeting_id}")
+                print(f"   selected calendar_event_id: {calendar_event_id}")
+                print(f"   meeting source: USER_SELECTION_REQUIRED")
+                print(f"   meeting_options count: {len(meeting_options)}")
+                for i, opt in enumerate(meeting_options[:5], 1):  # Log first 5 options
+                    opt_title = opt.get('title', getattr(opt, 'title', 'N/A')) if isinstance(opt, dict) else getattr(opt, 'title', 'N/A')
+                    opt_date = opt.get('date', getattr(opt, 'date', 'N/A')) if isinstance(opt, dict) else getattr(opt, 'date', 'N/A')
+                    print(f"      option {i}: '{opt_title}' on {opt_date}")
+                
                 return result
             
             # If we have a calendar event, process it
@@ -153,6 +265,17 @@ class ToolExecutor:
                 if event_data.get("error"):
                     print(f"   ❌ ERROR processing calendar event: {event_data.get('error')}")
                     result["error"] = event_data["error"]
+                    
+                    # DIAGNOSTIC: Log error case
+                    print(f"\n[DIAGNOSTIC SUMMARY] _prepare_summarization_data() - ERROR")
+                    print(f"   message: '{prepared_data.get('message', 'N/A')}'")
+                    print(f"   client_name: '{client_name}'")
+                    print(f"   target_date: {target_date}")
+                    print(f"   selected meeting_id: {meeting_id}")
+                    print(f"   selected calendar_event_id: {calendar_event_id}")
+                    print(f"   meeting source: ERROR")
+                    print(f"   error: {event_data.get('error')}")
+                    
                     return result
                 
                 print(f"   ✅ Calendar event processed, meeting_id={event_data.get('meeting_id')}")
@@ -166,8 +289,36 @@ class ToolExecutor:
                     "attendees": event_data.get("attendees"),
                     "has_transcript": event_data.get("has_transcript", False)
                 }
+                
+                # DIAGNOSTIC: Log meeting source and metadata
+                print(f"\n[DIAGNOSTIC SUMMARY] _prepare_summarization_data() - CALENDAR_MATCH")
+                print(f"   message: '{prepared_data.get('message', 'N/A')}'")
+                print(f"   client_name: '{client_name}'")
+                print(f"   target_date: {target_date}")
+                print(f"   selected meeting_id: {meeting_id}")
+                print(f"   selected calendar_event_id: {calendar_event_id}")
+                print(f"   meeting source: CALENDAR_MATCH")
+                print(f"   calendar_event metadata:")
+                print(f"      - summary: '{calendar_event.get('summary', 'N/A')}'")
+                print(f"      - id: '{calendar_event.get('id', 'N/A')}'")
+                print(f"      - start: {calendar_event.get('start', {}).get('dateTime', 'N/A')}")
+                print(f"   event_data metadata:")
+                print(f"      - meeting_id: {event_data.get('meeting_id')}")
+                print(f"      - meeting_title: '{event_data.get('meeting_title', 'N/A')}'")
+                print(f"      - meeting_date: '{event_data.get('meeting_date', 'N/A')}'")
+                print(f"      - has_transcript: {event_data.get('has_transcript', False)}")
+                print(f"      - transcript_length: {len(event_data.get('transcript', '')) if event_data.get('transcript') else 0}")
             else:
                 print(f"   ❌ No calendar_event found")
+                
+                # DIAGNOSTIC: Log no match case
+                print(f"\n[DIAGNOSTIC SUMMARY] _prepare_summarization_data() - NO_MATCH")
+                print(f"   message: '{prepared_data.get('message', 'N/A')}'")
+                print(f"   client_name: '{client_name}'")
+                print(f"   target_date: {target_date}")
+                print(f"   selected meeting_id: {meeting_id}")
+                print(f"   selected calendar_event_id: {calendar_event_id}")
+                print(f"   meeting source: NO_MATCH")
         
         print(f"   OUTPUT: {result}")
         return result
@@ -462,9 +613,16 @@ class ToolExecutor:
             }
         
         # Call tool with structured input
+        # DIAGNOSTIC: Extract meeting_id and calendar_event_id for logging
+        diagnostic_meeting_id = integration_data.get("meeting_id")
+        diagnostic_calendar_event_id = integration_data.get("calendar_event", {}).get("id") if integration_data.get("calendar_event") else None
+        
         result = await self.summarization_tool.summarize_meeting(
             **structured_data,
-            past_context=past_context
+            past_context=past_context,
+            meeting_id=diagnostic_meeting_id,
+            calendar_event_id=diagnostic_calendar_event_id,
+            user_id=user_id
         )
         
         # Check if result has error
