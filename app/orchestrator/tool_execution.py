@@ -10,6 +10,7 @@ from app.orchestrator.integration_data_fetching import IntegrationDataFetcher
 from app.orchestrator.meeting_finder import MeetingFinder
 from app.memory.schemas import MeetingUpdate, DecisionCreate
 from app.utils.date_utils import format_datetime_display
+from app.utils.date_utils import extract_event_datetime
 
 
 class ToolExecutor:
@@ -84,12 +85,36 @@ class ToolExecutor:
         # EARLY EXIT FIX: If the user selected a calendar event, use it directly.
         # This prevents database fallback from triggering when a calendar event is explicitly chosen.
         if calendar_event_id:
+            # VALIDATION A3.1: Validate calendar_event_id refers to exactly one event
+            from app.integrations.google_calendar_client import get_calendar_event_by_id
+            calendar_event = get_calendar_event_by_id(calendar_event_id)
+            if calendar_event is None:
+                return {
+                    "tool_name": "summarization",
+                    "error": f"Calendar event ID {calendar_event_id} does not exist in Google Calendar"
+                }
+            
+            # VALIDATION A3.2: Validate calendar event date matches user's target_date
+            # Date validated here for direct calendar_event_id path
+            if target_date:
+                event_dt = extract_event_datetime(calendar_event)
+                if event_dt is None:
+                    return {
+                        "tool_name": "summarization",
+                        "error": "Calendar event has invalid or missing date"
+                    }
+                
+                # Compare dates (same day, ignoring time)
+                if event_dt.date() != target_date.date():
+                    return {
+                        "tool_name": "summarization",
+                        "error": f"Calendar event date ({event_dt.date()}) does not match requested date ({target_date.date()})"
+                    }
+            
             print(f"   [EARLY EXIT] calendar_event_id provided ({calendar_event_id}), bypassing DB lookup and using calendar event directly")
             
             # Fetch the calendar event directly by ID
-            from app.integrations.google_calendar_client import get_calendar_event_by_id
             try:
-                calendar_event = get_calendar_event_by_id(calendar_event_id)
                 if calendar_event:
                     print(f"   ✅ Successfully fetched calendar event: {calendar_event.get('summary', 'Untitled')}")
                     
@@ -234,6 +259,13 @@ class ToolExecutor:
             )
             print(f"   RESULT: find_meeting_in_calendar returned calendar_event={calendar_event is not None}, meeting_options={meeting_options is not None}")
             
+            # VALIDATION A3.3: Validate that multiple events don't match (ambiguous selection)
+            if meeting_options and isinstance(meeting_options, list) and len(meeting_options) > 1:
+                return {
+                    "tool_name": "summarization",
+                    "error": f"Multiple calendar events match the search criteria. Please select a specific meeting."
+                }
+            
             # If meeting options are returned, user needs to select
             if meeting_options:
                 print(f"   BRANCH: meeting_options returned ({len(meeting_options)} options)")
@@ -258,6 +290,23 @@ class ToolExecutor:
             
             # If we have a calendar event, process it
             if calendar_event:
+                # VALIDATION A3.4: Validate calendar event date matches user's target_date
+                # Only validate date here if this is the fallback search path (not direct calendar_event_id)
+                if not calendar_event_id and target_date:
+                    event_dt = extract_event_datetime(calendar_event)
+                    if event_dt is None:
+                        return {
+                            "tool_name": "summarization",
+                            "error": "Calendar event has invalid or missing date"
+                        }
+                    
+                    # Compare dates (same day, ignoring time)
+                    if event_dt.date() != target_date.date():
+                        return {
+                            "tool_name": "summarization",
+                            "error": f"Calendar event date ({event_dt.date()}) does not match requested date ({target_date.date()})"
+                        }
+                
                 print(f"   BRANCH: calendar_event found, processing...")
                 event_data = await self.integration_data_fetcher.process_calendar_event_for_summarization(
                     calendar_event, user_id, client_id
