@@ -24,7 +24,10 @@ class FollowUpTool:
         attendees: Optional[str] = None,
         action_items: Optional[list] = None,
         decisions: Optional[list] = None,
-        past_context: Optional[List[Dict[str, Any]]] = None
+        past_context: Optional[List[Dict[str, Any]]] = None,
+        meeting_id: Optional[int] = None,
+        calendar_event_id: Optional[str] = None,
+        meeting_source: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Generate a follow-up email.
@@ -40,10 +43,27 @@ class FollowUpTool:
             action_items: List of action items from the meeting
             decisions: List of decisions made in the meeting (can be dicts with description/context)
             past_context: Optional list of past meeting memories for context
+            meeting_id: Optional meeting ID for diagnostic logging
+            calendar_event_id: Optional calendar event ID for diagnostic logging
+            meeting_source: Optional source indicator for diagnostic logging
         
         Returns:
             Dictionary with email subject and body
         """
+        # DIAGNOSTIC: Log what meeting actually gets passed
+        print(f"\n[FOLLOWUP DEBUG] generate_followup called")
+        print(f"[FOLLOWUP DEBUG] meeting_source={meeting_source}")
+        print(f"[FOLLOWUP DEBUG] meeting_id={meeting_id}")
+        print(f"[FOLLOWUP DEBUG] calendar_event_id={calendar_event_id}")
+        print(f"[FOLLOWUP DEBUG] meeting_title='{meeting_title}'")
+        print(f"[FOLLOWUP DEBUG] meeting_date='{meeting_date}'")
+        print(f"[FOLLOWUP DEBUG] client_name='{client_name}'")
+        print(f"[FOLLOWUP DEBUG] client_email='{client_email}'")
+        print(f"[FOLLOWUP DEBUG] has_meeting_summary={meeting_summary is not None} (length={len(meeting_summary) if meeting_summary else 0})")
+        print(f"[FOLLOWUP DEBUG] has_transcript={transcript is not None} (length={len(transcript) if transcript else 0})")
+        print(f"[FOLLOWUP DEBUG] decisions_count={len(decisions) if decisions else 0}")
+        print(f"[FOLLOWUP DEBUG] past_context_count={len(past_context) if past_context else 0}")
+        
         # Synthesize memory insights if past_context provided
         insights = {
             "communication_style": "",

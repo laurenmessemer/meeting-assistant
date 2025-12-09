@@ -2,6 +2,7 @@
 
 from typing import Dict, Any, Optional
 from app.memory.repo import MemoryRepository
+from app.memory.categories import PERSISTENT_MEMORY_KEYS
 
 
 class MemoryRetriever:
@@ -44,6 +45,15 @@ class MemoryRetriever:
             # Get client context
             client_context = self.memory.get_client_context(client_id)
             context["client_context"] = client_context
+        
+        # Get persistent memory entries by key
+        if user_id:
+            context["persistent_memory"] = {
+                key: self.memory.get_memory_by_key(user_id, key, client_id)
+                for key in PERSISTENT_MEMORY_KEYS
+            }
+        else:
+            context["persistent_memory"] = {}
         
         return context
 

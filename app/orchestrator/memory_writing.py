@@ -4,6 +4,7 @@ from typing import Optional, Dict, Any
 from app.llm.gemini_client import GeminiClient
 from app.memory.repo import MemoryRepository
 from app.memory.schemas import MemoryEntryCreate
+from app.memory.categories import PERSISTENT_MEMORY_KEYS
 from app.llm.prompts import MEMORY_EXTRACTION_PROMPT
 
 
@@ -58,15 +59,26 @@ Respond in JSON format with key-value pairs."""
             if isinstance(memory_data, dict) and memory_data:
                 for key, value in memory_data.items():
                     if isinstance(value, (str, int, float, bool)):
-                        self.memory.create_or_update_memory_entry(
-                            MemoryEntryCreate(
+                        # Route to persistent memory category if key is in taxonomy
+                        if key in PERSISTENT_MEMORY_KEYS:
+                            self.memory.save_memory_by_key(
                                 user_id=user_id,
-                                client_id=client_id,
                                 key=key,
                                 value=str(value),
+                                client_id=client_id,
                                 extra_data={}
                             )
-                        )
+                        else:
+                            # Use existing logic for non-taxonomy keys
+                            self.memory.create_or_update_memory_entry(
+                                MemoryEntryCreate(
+                                    user_id=user_id,
+                                    client_id=client_id,
+                                    key=key,
+                                    value=str(value),
+                                    extra_data={}
+                                )
+                            )
         except Exception:
             # Silently fail memory extraction
             pass

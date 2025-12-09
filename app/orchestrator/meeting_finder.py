@@ -28,16 +28,22 @@ class MeetingFinder:
         client_id: Optional[int] = None,
         user_id: Optional[int] = None,
         client_name: Optional[str] = None,
-        target_date: Optional[datetime] = None
+        target_date: Optional[datetime] = None,
+        for_followup: bool = False
     ) -> Optional[int]:
         """
         Find a meeting in the database.
         Returns meeting_id if found, None otherwise.
+        
+        Args:
+            for_followup: If True, indicates this lookup is for follow-up generation (diagnostic logging)
         """
         try:
             from datetime import datetime, timezone
             
             print(f"      [MeetingFinder] find_meeting_in_database called")
+            if for_followup:
+                print(f"      [FOLLOWUP DEBUG] DB lookup triggered for follow-up: client_name={client_name}, target_date={target_date}, client_id={client_id}, user_id={user_id}")
             print(f"         meeting_id={meeting_id}, client_id={client_id}, user_id={user_id}, client_name={client_name}, target_date={target_date}")
             
             # If meeting_id is provided, verify it exists
@@ -166,14 +172,20 @@ class MeetingFinder:
         target_date: Optional[datetime] = None,
         selected_meeting_number: Optional[int] = None,
         calendar_event_id: Optional[str] = None,
-        user_id: Optional[int] = None
+        user_id: Optional[int] = None,
+        for_followup: bool = False
     ) -> Tuple[Optional[Dict[str, Any]], Optional[list]]:
         """
         Find a meeting in Google Calendar.
         Returns (calendar_event, meeting_options) tuple.
         If meeting_options is not None, user needs to select.
+        
+        Args:
+            for_followup: If True, indicates this lookup is for follow-up generation (diagnostic logging)
         """
         print(f"      [MeetingFinder] find_meeting_in_calendar called")
+        if for_followup:
+            print(f"      [FOLLOWUP DEBUG] Calendar lookup triggered for follow-up: client_name={client_name}, target_date={target_date}, calendar_event_id={calendar_event_id}")
         print(f"         client_name={client_name}, target_date={target_date}, selected_meeting_number={selected_meeting_number}, calendar_event_id={calendar_event_id}, user_id={user_id}")
         
         from datetime import datetime, timedelta, timezone

@@ -257,6 +257,66 @@ class MemoryRepository:
             self.db.refresh(memory_entry)
             return memory_entry
     
+    def get_memory_by_key(
+        self,
+        user_id: int,
+        key: str,
+        client_id: Optional[int] = None
+    ) -> Optional[MemoryEntry]:
+        """
+        Get the most recent memory entry with the given key.
+        
+        Args:
+            user_id: User ID (required)
+            key: Memory key to look up
+            client_id: Optional client ID to filter by
+        
+        Returns:
+            Most recent MemoryEntry with the given key, or None if not found
+        """
+        query = self.db.query(MemoryEntry).filter(
+            and_(
+                MemoryEntry.user_id == user_id,
+                MemoryEntry.key == key
+            )
+        )
+        
+        if client_id is not None:
+            query = query.filter(MemoryEntry.client_id == client_id)
+        
+        return query.order_by(desc(MemoryEntry.updated_at)).first()
+    
+    def save_memory_by_key(
+        self,
+        user_id: int,
+        key: str,
+        value: str,
+        client_id: Optional[int] = None,
+        extra_data: Optional[Dict[str, Any]] = None
+    ) -> MemoryEntry:
+        """
+        Save or update a memory entry by key using the upsert pattern.
+        
+        Args:
+            user_id: User ID (required)
+            key: Memory key
+            value: Memory value
+            client_id: Optional client ID
+            extra_data: Optional additional metadata
+        
+        Returns:
+            Created or updated MemoryEntry
+        """
+        memory_data = MemoryEntryCreate(
+            user_id=user_id,
+            client_id=client_id,
+            key=key,
+            value=value,
+            extra_data=extra_data
+        )
+        
+        return self.create_or_update_memory_entry(memory_data)
+    
     def save_interaction_memory(
         self,
         user_id: int,

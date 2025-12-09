@@ -55,7 +55,7 @@ class ToolExecutor:
             )
         elif intent == "followup":
             integration_data = await self._prepare_followup_data(
-                prepared_data, user_id, client_id
+                prepared_data, user_id, client_id, context
             )
         
         return integration_data
@@ -388,16 +388,28 @@ class ToolExecutor:
         self,
         prepared_data: Dict[str, Any],
         user_id: Optional[int],
-        client_id: Optional[int]
+        client_id: Optional[int],
+        context: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """Prepare data for followup tool using reusable pipeline pattern."""
-        # TEMPORARY DEBUG: Log user_id received
-        print(f"[FOLLOWUP DEBUG] user_id = {user_id}")
-        print(f"[FOLLOWUP DEBUG] client_id = {client_id}")
-        print(f"[FOLLOWUP DEBUG] prepared_data = {prepared_data}")
+        # DIAGNOSTIC: Log at the very TOP
+        print(f"\n[FOLLOWUP DEBUG] _prepare_followup_data called")
+        print(f"[FOLLOWUP DEBUG] selected_meeting_id: {prepared_data.get('meeting_id')}")
+        print(f"[FOLLOWUP DEBUG] selected_calendar_event_id: {prepared_data.get('calendar_event_id')}")
+        print(f"[FOLLOWUP DEBUG] user_id: {user_id}")
+        print(f"[FOLLOWUP DEBUG] client_id: {client_id}")
+        print(f"[FOLLOWUP DEBUG] prepared_data keys: {list(prepared_data.keys())}")
+        print(f"[FOLLOWUP DEBUG] prepared_data full: {prepared_data}")
+        if context:
+            print(f"[FOLLOWUP DEBUG] context keys: {list(context.keys())}")
+            print(f"[FOLLOWUP DEBUG] context.last_selected_meeting: {context.get('last_selected_meeting', 'NOT_FOUND')}")
+            print(f"[FOLLOWUP DEBUG] context metadata: {context.get('metadata', {})}")
+        else:
+            print(f"[FOLLOWUP DEBUG] context: None (no context provided)")
         
         meeting_id = prepared_data.get("meeting_id")
         client_name = prepared_data.get("client_name")
+        calendar_event_id = prepared_data.get("calendar_event_id")
         
         result = {
             "structured_data": {}
@@ -405,37 +417,58 @@ class ToolExecutor:
         
         # Step 1: If meeting_id provided, fetch meeting from database
         if meeting_id:
+            print(f"[FOLLOWUP DEBUG] Step 1: Explicit meeting_id provided ({meeting_id}), fetching from database...")
             meeting = self.memory.get_meeting_by_id(meeting_id)
             if meeting:
+                print(f"[FOLLOWUP DEBUG] Step 1: Meeting found in DB: {meeting.title} (client_id={meeting.client_id})")
                 # Build structured_data from meeting
                 result["structured_data"] = self._build_followup_structured_data(
                     meeting, client_id, user_id
                 )
+                result["meeting_id"] = meeting_id
+                print(f"[FOLLOWUP DEBUG] Step 1: Returning result with meeting_id={meeting_id}")
                 return result
+            else:
+                print(f"[FOLLOWUP DEBUG] Step 1: Meeting {meeting_id} NOT found in DB, continuing to fallback...")
+        else:
+            print(f"[FOLLOWUP DEBUG] Step 1: No explicit meeting_id provided — running meeting inference fallback")
+        
+        # Check persistent memory for last selected meeting before fallback logic
+        if not meeting_id:
+            persistent = context.get("persistent_memory", {}) if context else {}
+            last_selected = persistent.get("last_selected_meeting")
+            if last_selected and hasattr(last_selected, "value"):
+                meeting_id = int(last_selected.value)
         
         # Step 2: If NO meeting_id but client_id exists, use MeetingFinder
         if not meeting_id and client_id:
+            print(f"[FOLLOWUP DEBUG] Step 2: No meeting_id but client_id exists ({client_id}), using MeetingFinder...")
             meeting_finder = MeetingFinder(self.db, self.memory)
             meeting_id = meeting_finder.find_meeting_in_database(
                 meeting_id=None,
                 client_id=client_id,
                 user_id=user_id,
-                client_name=client_name
+                client_name=client_name,
+                for_followup=True
             )
+            print(f"[FOLLOWUP DEBUG] Step 2: MeetingFinder returned meeting_id={meeting_id}")
+        else:
+            print(f"[FOLLOWUP DEBUG] Step 2: NOT triggered (meeting_id={meeting_id}, client_id={client_id})")
         
         # Step 2b: Fallback - If NO meeting_id and NO client_id, try finding by user_id
         if not meeting_id and client_id is None and user_id:
-            print("[FOLLOWUP DEBUG] Step 2b triggered - searching by user_id fallback")
+            print(f"[FOLLOWUP DEBUG] Step 2b: No meeting_id and NO client_id, searching by user_id fallback (user_id={user_id})...")
             meeting_finder = MeetingFinder(self.db, self.memory)
             meeting_id = meeting_finder.find_meeting_in_database(
                 meeting_id=None,
                 client_id=None,
                 user_id=user_id,
-                client_name=None
+                client_name=None,
+                for_followup=True
             )
-            print(f"[FOLLOWUP DEBUG] Step 2b result: meeting_id = {meeting_id}")
+            print(f"[FOLLOWUP DEBUG] Step 2b: Result from user_id fallback: meeting_id = {meeting_id}")
         else:
-            print(f"[FOLLOWUP DEBUG] Step 2b NOT triggered: meeting_id={meeting_id}, client_id={client_id}, user_id={user_id}")
+            print(f"[FOLLOWUP DEBUG] Step 2b: NOT triggered (meeting_id={meeting_id}, client_id={client_id}, user_id={user_id})")
         
         # Step 3: If we now have a meeting_id, get data from database
         if meeting_id:
@@ -655,6 +688,23 @@ class ToolExecutor:
                 meeting_id,
                 MeetingUpdate(summary=result.get("summary"))
             )
+            
+            # Save last selected meeting to persistent memory
+            if user_id:
+                # Only attempt to pull a calendar event ID if integration_data exists
+                calendar_event_id = None
+                if integration_data and isinstance(integration_data, dict):
+                    calendar_event_id = (
+                        integration_data.get("calendar_event", {}) or {}
+                    ).get("id")
+                
+                self.memory.save_memory_by_key(
+                    user_id=user_id,
+                    client_id=client_id,
+                    key="last_selected_meeting",
+                    value=str(meeting_id),
+                    extra_data={"calendar_event_id": calendar_event_id}
+                )
         
         return {
             "tool_name": "summarization",
@@ -679,10 +729,18 @@ class ToolExecutor:
                 "error": "No meeting summary available for follow-up."
             }
         
+        # DIAGNOSTIC: Extract meeting identifiers for logging
+        diagnostic_meeting_id = integration_data.get("meeting_id")
+        diagnostic_calendar_event_id = integration_data.get("calendar_event", {}).get("id") if integration_data.get("calendar_event") else None
+        diagnostic_meeting_source = integration_data.get("meeting_source", "unknown")
+        
         # Call tool with structured input
         result = await self.followup_tool.generate_followup(
             **structured_data,
-            past_context=past_context
+            past_context=past_context,
+            meeting_id=diagnostic_meeting_id,
+            calendar_event_id=diagnostic_calendar_event_id,
+            meeting_source=diagnostic_meeting_source
         )
         
         return {
