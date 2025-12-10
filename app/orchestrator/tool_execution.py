@@ -1006,6 +1006,45 @@ class ToolExecutor:
                 "error": "No meeting summary available for follow-up."
             }
         
+        # VALIDATION D1: Validate meeting_summary quality
+        meeting_summary = structured_data.get("meeting_summary")
+        if meeting_summary is not None:
+            # 1: dict always indicates an error-like payload
+            if isinstance(meeting_summary, dict):
+                return {
+                    "tool_name": "followup",
+                    "error": "Meeting summary is not valid text"
+                }
+            
+            # 2: non-string summaries (numbers, lists, booleans)
+            if not isinstance(meeting_summary, str):
+                return {
+                    "tool_name": "followup",
+                    "error": "Meeting summary is not valid text"
+                }
+            
+            # 3: empty or whitespace-only strings
+            if meeting_summary == "" or meeting_summary.strip() == "":
+                return {
+                    "tool_name": "followup",
+                    "error": "Meeting summary is empty"
+                }
+            
+            # 4: error-like string content
+            summary_lower = meeting_summary.lower()
+            if summary_lower.startswith("error"):
+                return {
+                    "tool_name": "followup",
+                    "error": "Meeting summary contains an error instead of valid text"
+                }
+            
+            # 5: partially generated or malformed summary indicators
+            if summary_lower.startswith(("summary failed", "partial summary", "no summary")):
+                return {
+                    "tool_name": "followup",
+                    "error": "Meeting summary is incomplete or malformed"
+                }
+        
         # DIAGNOSTIC: Extract meeting identifiers for logging
         diagnostic_meeting_id = integration_data.get("meeting_id")
         diagnostic_calendar_event_id = integration_data.get("calendar_event", {}).get("id") if integration_data.get("calendar_event") else None
