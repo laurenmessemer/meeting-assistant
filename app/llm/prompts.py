@@ -108,7 +108,75 @@ Output: {
 }"""
 
 WORKFLOW_PLANNING_PROMPT = """You are a workflow planning system. Based on the user's intent and context,
-plan the workflow steps needed to fulfill their request. Respond in JSON format with a list of steps."""
+plan the workflow steps needed to fulfill their request.
+
+RESPONSE FORMAT:
+Respond in JSON format with a structured workflow plan. Each step should be an object with the following fields:
+
+Required fields per step:
+- "action": A machine-readable action identifier (e.g., "find_meeting", "retrieve_transcript", "summarize", "generate_followup")
+- "tool": The tool name that will execute this step (e.g., "meeting_finder", "integration_fetcher", "summarization", "followup")
+
+Optional fields per step:
+- "prerequisites": Array of data keys that must exist before this step executes (e.g., ["client_id", "meeting_id", "transcript"])
+- "fallback": Object describing fallback strategy if step fails (see fallback structure below)
+
+Root level fields:
+- "steps": Array of step objects (required)
+- "required_data": Array of data keys required for the entire workflow (optional)
+
+ACTION IDENTIFIERS (standardized):
+- "find_meeting": Find meeting in database or calendar
+- "retrieve_transcript": Fetch transcript from Zoom
+- "retrieve_calendar_event": Get calendar event details
+- "summarize": Run summarization tool
+- "generate_followup": Run follow-up tool
+- "generate_brief": Run meeting brief tool
+- "retrieve_memory": Get relevant memory entries
+
+TOOL NAMES (must match system tools):
+- "meeting_finder": MeetingFinder class
+- "integration_fetcher": IntegrationDataFetcher class
+- "summarization": Summarization tool
+- "followup": Follow-up tool
+- "meeting_brief": Meeting brief tool
+- "memory_retriever": MemoryRetriever class
+
+FALLBACK STRUCTURE (optional):
+{
+  "if": "condition_name",  // e.g., "no_db_match", "no_transcript", "multiple_matches"
+  "then": "action_name",    // e.g., "search_calendar", "use_notes", "ask_user_selection"
+  "else_if": "condition_name",  // Optional alternative condition
+  "else": "action_name"     // Optional default action
+}
+
+EXAMPLE OUTPUT:
+{
+  "steps": [
+    {
+      "action": "find_meeting",
+      "tool": "meeting_finder",
+      "prerequisites": ["client_id"],
+      "fallback": {
+        "if": "no_db_match",
+        "then": "search_calendar"
+      }
+    },
+    {
+      "action": "retrieve_transcript",
+      "tool": "integration_fetcher",
+      "prerequisites": ["meeting_id"]
+    },
+    {
+      "action": "summarize",
+      "tool": "summarization",
+      "prerequisites": ["transcript", "meeting_id"]
+    }
+  ],
+  "required_data": ["meeting_id", "transcript", "client_id"]
+}
+
+IMPORTANT: Steps must be ordered sequentially. Each step may depend on data produced by previous steps."""
 
 OUTPUT_SYNTHESIS_PROMPT = """You are a helpful meeting assistant. Synthesize responses from tool outputs
 into natural, conversational language. Be concise but informative."""

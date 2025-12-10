@@ -273,28 +273,34 @@ class MeetingFinder:
                         
                         if window_events:
                             print(f"         ✅ Found {len(window_events)} event(s) in date window, using as fallback")
-                            # ALWAYS return options for user selection (even if only one match)
-                            print(f"         📋 Returning options for user selection")
-                            return None, self._create_meeting_options(window_events, client_name, user_id)
+                            # Return based on number of matches
+                            if len(window_events) == 1:
+                                print(f"         ✅ Single match found, returning calendar event")
+                                return window_events[0], None
+                            elif len(window_events) > 1:
+                                print(f"         📋 Multiple matches found, returning options for user selection")
+                                return None, self._create_meeting_options(window_events, client_name, user_id)
+                            else:
+                                return None, None
                         else:
                             print(f"         ❌ No events found in date window either")
                             return None, None
                     
-                    # ALWAYS return options for user selection (even if only one match)
-                    # This allows user to confirm before we fetch transcript
-                    print(f"         📋 Found {len(matching_events)} event(s), returning options for user selection")
-                    
-                    # DIAGNOSTIC: Log final chosen event (if only one match, it's the chosen one)
+                    # Return based on number of matches
                     if len(matching_events) == 1:
                         final_event = matching_events[0]
+                        print(f"         ✅ Single match found, returning calendar event")
                         print(f"   [DIAGNOSTIC] Final chosen event (single match):")
                         print(f"      summary: '{final_event.get('summary', 'N/A')}'")
                         print(f"      id: '{final_event.get('id', 'N/A')}'")
                         print(f"      start: {final_event.get('start', {}).get('dateTime', 'N/A')}")
+                        return final_event, None
                     elif len(matching_events) > 1:
+                        print(f"         📋 Multiple matches found, returning options for user selection")
                         print(f"   [DIAGNOSTIC] Multiple matches - returning options (no single chosen event)")
-                    
-                    return None, self._create_meeting_options(matching_events, client_name, user_id)
+                        return None, self._create_meeting_options(matching_events, client_name, user_id)
+                    else:
+                        return None, None
                 else:
                     # No target date - search recent past (last 90 days)
                     search_days_back = 90
@@ -363,10 +369,12 @@ class MeetingFinder:
                             print(f"         ✅ Found event in matching list: '{selected_event.get('summary', 'Untitled')}'")
                             return selected_event, None
                     
-                    # ALWAYS return options for user selection when client_name is provided
-                    # This allows user to confirm before we fetch transcript
-                    if matching_events:
-                        print(f"         📋 Returning {len(matching_events)} meeting option(s) for user selection")
+                    # Return based on number of matches
+                    if len(matching_events) == 1:
+                        print(f"         ✅ Single match found, returning calendar event")
+                        return matching_events[0], None
+                    elif len(matching_events) > 1:
+                        print(f"         📋 Multiple matches found, returning options for user selection")
                         return None, self._create_meeting_options(matching_events, client_name, user_id)
                     else:
                         print(f"         ❌ No matching events found")

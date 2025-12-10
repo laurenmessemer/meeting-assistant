@@ -331,7 +331,8 @@ class AgentOrchestrator:
                     client_id,
                     extracted_info,
                     prepared_data,
-                    integration_data
+                    integration_data,
+                    workflow=workflow
                 )
                 step_duration = (datetime.utcnow() - step_start).total_seconds() * 1000
                 
