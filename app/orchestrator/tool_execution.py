@@ -774,6 +774,37 @@ class ToolExecutor:
                 )
             }
         
+        # VALIDATION B1: Additional transcript validation
+        transcript = structured_data.get("transcript")
+        if transcript is not None:
+            # 1: dict always indicates an error-like payload
+            if isinstance(transcript, dict):
+                return {
+                    "tool_name": "summarization",
+                    "error": "Transcript contains an error instead of valid text"
+                }
+            
+            # 2: non-string transcripts (numbers, lists, booleans)
+            if not isinstance(transcript, str):
+                return {
+                    "tool_name": "summarization",
+                    "error": "Transcript is not valid text"
+                }
+            
+            # 3: empty or whitespace-only strings
+            if transcript == "" or transcript.strip() == "":
+                return {
+                    "tool_name": "summarization",
+                    "error": "Transcript is empty"
+                }
+            
+            # 4: error-like string content
+            if transcript.lower().startswith("error"):
+                return {
+                    "tool_name": "summarization",
+                    "error": "Transcript contains an error instead of valid text"
+                }
+        
         # Call tool with structured input
         # DIAGNOSTIC: Extract meeting_id and calendar_event_id for logging
         diagnostic_meeting_id = integration_data.get("meeting_id")
