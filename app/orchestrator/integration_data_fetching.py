@@ -152,11 +152,51 @@ class IntegrationDataFetcher:
             # Infer client_id if not provided
             if client_id is None:
                 client_inference = ClientInferenceService(self.memory, GeminiClient())
-                client_id = client_inference.infer_client_id(
+                inference_result = client_inference.infer_client_id(
                     meeting_title=event_title,
                     attendees=attendees_list,
                     user_id=user_id
                 )
+                
+                # VALIDATION C1: Validate inferred client_id and confidence
+                # Handle both dict format (with confidence) and int format (backward compatibility)
+                if isinstance(inference_result, dict):
+                    inferred_client_id = inference_result.get("client_id")
+                    confidence = inference_result.get("confidence", 0.0)
+                elif isinstance(inference_result, int):
+                    inferred_client_id = inference_result
+                    confidence = 1.0  # Assume high confidence for direct int return
+                else:
+                    inferred_client_id = None
+                    confidence = 0.0
+                
+                # Validate confidence threshold
+                if inferred_client_id is not None and confidence < 0.60:
+                    return {
+                        "tool_name": "summarization",
+                        "error": "Unable to infer client with sufficient confidence"
+                    }
+                
+                # Validate client_id is integer
+                if inferred_client_id is not None:
+                    if not isinstance(inferred_client_id, int):
+                        try:
+                            inferred_client_id = int(inferred_client_id)
+                        except (ValueError, TypeError):
+                            return {
+                                "tool_name": "summarization",
+                                "error": "Inferred client does not exist in database"
+                            }
+                    
+                    # Validate client exists in database
+                    client = self.memory.get_client_by_id(inferred_client_id)
+                    if client is None:
+                        return {
+                            "tool_name": "summarization",
+                            "error": "Inferred client does not exist in database"
+                        }
+                    
+                    client_id = inferred_client_id
             
             meeting_data = MeetingCreate(
                 user_id=user_id or 1,
