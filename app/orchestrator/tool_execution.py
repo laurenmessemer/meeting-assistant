@@ -571,6 +571,49 @@ class ToolExecutor:
             print(f"[FOLLOWUP DEBUG] Step 1: Explicit meeting_id provided ({meeting_id}), fetching from database...")
             meeting = self.memory.get_meeting_by_id(meeting_id)
             if meeting:
+                # VALIDATION D2: Validate meeting.summary quality
+                if meeting.summary is None:
+                    return {
+                        "tool_name": "followup",
+                        "error": "No meeting summary available for follow-up."
+                    }
+                
+                # 1: dict always indicates an error-like payload
+                if isinstance(meeting.summary, dict):
+                    return {
+                        "tool_name": "followup",
+                        "error": "Meeting summary is not valid text"
+                    }
+                
+                # 2: non-string summaries (numbers, lists, booleans)
+                if not isinstance(meeting.summary, str):
+                    return {
+                        "tool_name": "followup",
+                        "error": "Meeting summary is not valid text"
+                    }
+                
+                # 3: empty or whitespace-only strings
+                if meeting.summary == "" or meeting.summary.strip() == "":
+                    return {
+                        "tool_name": "followup",
+                        "error": "Meeting summary is empty"
+                    }
+                
+                # 4: error-like string content
+                summary_lower = meeting.summary.lower()
+                if summary_lower.startswith("error"):
+                    return {
+                        "tool_name": "followup",
+                        "error": "Meeting summary contains an error instead of valid text"
+                    }
+                
+                # 5: partially generated or malformed summary indicators
+                if summary_lower.startswith(("summary failed", "partial summary", "no summary")):
+                    return {
+                        "tool_name": "followup",
+                        "error": "Meeting summary is incomplete or malformed"
+                    }
+                
                 print(f"[FOLLOWUP DEBUG] Step 1: Meeting found in DB: {meeting.title} (client_id={meeting.client_id})")
                 # Build structured_data from meeting
                 result["structured_data"] = self._build_followup_structured_data(
@@ -653,6 +696,49 @@ class ToolExecutor:
             # Validate meeting from fallback search exists in database
             meeting = self.memory.get_meeting_by_id(meeting_id)
             if meeting:
+                # VALIDATION D2: Validate meeting.summary quality
+                if meeting.summary is None:
+                    return {
+                        "tool_name": "followup",
+                        "error": "No meeting summary available for follow-up."
+                    }
+                
+                # 1: dict always indicates an error-like payload
+                if isinstance(meeting.summary, dict):
+                    return {
+                        "tool_name": "followup",
+                        "error": "Meeting summary is not valid text"
+                    }
+                
+                # 2: non-string summaries (numbers, lists, booleans)
+                if not isinstance(meeting.summary, str):
+                    return {
+                        "tool_name": "followup",
+                        "error": "Meeting summary is not valid text"
+                    }
+                
+                # 3: empty or whitespace-only strings
+                if meeting.summary == "" or meeting.summary.strip() == "":
+                    return {
+                        "tool_name": "followup",
+                        "error": "Meeting summary is empty"
+                    }
+                
+                # 4: error-like string content
+                summary_lower = meeting.summary.lower()
+                if summary_lower.startswith("error"):
+                    return {
+                        "tool_name": "followup",
+                        "error": "Meeting summary contains an error instead of valid text"
+                    }
+                
+                # 5: partially generated or malformed summary indicators
+                if summary_lower.startswith(("summary failed", "partial summary", "no summary")):
+                    return {
+                        "tool_name": "followup",
+                        "error": "Meeting summary is incomplete or malformed"
+                    }
+                
                 result["structured_data"] = self._build_followup_structured_data(
                     meeting, client_id, user_id
                 )
