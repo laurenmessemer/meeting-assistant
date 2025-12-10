@@ -621,6 +621,48 @@ class ToolExecutor:
         user_id: Optional[int]
     ) -> Dict[str, Any]:
         """Build structured_data dict for followup tool from meeting object."""
+        
+        # VALIDATION C2: Validate client_id exists in database
+        # Validate meeting.client_id if present
+        if meeting.client_id is not None:
+            # Validate and cast meeting.client_id to integer
+            if not isinstance(meeting.client_id, int):
+                try:
+                    meeting.client_id = int(meeting.client_id)
+                except (ValueError, TypeError):
+                    return {
+                        "tool_name": "followup",
+                        "error": "Invalid client_id format in meeting record"
+                    }
+            
+            # Validate client exists in database
+            client = self.memory.get_client_by_id(meeting.client_id)
+            if client is None:
+                return {
+                    "tool_name": "followup",
+                    "error": f"Client ID {meeting.client_id} from meeting record does not exist in database"
+                }
+        
+        # Validate client_id parameter if present
+        if client_id is not None:
+            # Validate and cast client_id to integer
+            if not isinstance(client_id, int):
+                try:
+                    client_id = int(client_id)
+                except (ValueError, TypeError):
+                    return {
+                        "tool_name": "followup",
+                        "error": "Invalid client_id format"
+                    }
+            
+            # Validate client exists in database
+            client = self.memory.get_client_by_id(client_id)
+            if client is None:
+                return {
+                    "tool_name": "followup",
+                    "error": f"Client ID {client_id} does not exist in database"
+                }
+        
         # Get client information
         client_name = None
         client_email = None
