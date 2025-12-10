@@ -117,6 +117,24 @@ class IntegrationDataFetcher:
         # Fetch transcript from Zoom
         transcript = await self.fetch_zoom_transcript(zoom_meeting_id, event_date)
         
+        # VALIDATION B2: Validate transcript and correct has_transcript flag
+        if transcript is not None:
+            # 1: dict always indicates an error-like payload
+            if isinstance(transcript, dict):
+                transcript = None
+            # 2: non-string transcripts (numbers, lists, booleans)
+            elif not isinstance(transcript, str):
+                transcript = None
+            # 3: empty or whitespace-only strings
+            elif transcript == "" or transcript.strip() == "":
+                transcript = None
+            # 4: error-like string content
+            elif transcript.lower().startswith("error"):
+                transcript = None
+        
+        # Set has_transcript based on validated transcript
+        has_transcript = transcript is not None
+        
         # Create meeting in database (even if no transcript found)
         # This allows summaries and decisions to be saved later
         meeting_id = None
@@ -161,7 +179,7 @@ class IntegrationDataFetcher:
             "recording_date": formatted_date,  # Use event date as recording date
             "attendees": attendees_str,
             "transcript": transcript,
-            "has_transcript": transcript is not None,
+            "has_transcript": has_transcript,
             "meeting_id": meeting_id
         }
     
