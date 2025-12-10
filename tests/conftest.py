@@ -1,3 +1,39 @@
+import pytest
+from unittest.mock import MagicMock
+
+
+@pytest.fixture
+def mock_llm():
+    llm = MagicMock()
+    return llm
+
+
+@pytest.fixture
+def mock_memory_insights():
+    return {
+        "communication_style": "direct",
+        "preferences": "concise",
+        "recurring_topics": "metrics",
+        "open_loops": "follow-up items",
+    }
+
+
+@pytest.fixture
+def mock_context():
+    return {
+        "user_memories": [
+            {"value": "memory 1"},
+            {"value": "memory 2"},
+            {"value": "memory 3"},
+        ]
+    }
+
+
+@pytest.fixture
+def mock_output_synthesizer(mock_llm):
+    from app.orchestrator.output_synthesis import OutputSynthesizer
+
+    return OutputSynthesizer(mock_llm)
 """Shared pytest fixtures and utilities for all tests."""
 
 import pytest

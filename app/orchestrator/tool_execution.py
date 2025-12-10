@@ -1,5 +1,6 @@
 """Tool execution module - executes tools with structured data."""
 
+import logging
 from typing import Dict, Any, Optional, Tuple
 from sqlalchemy.orm import Session
 from app.memory.repo import MemoryRepository
@@ -12,6 +13,9 @@ from app.memory.schemas import MeetingUpdate, DecisionCreate
 from app.utils.date_utils import format_datetime_display
 from app.utils.date_utils import extract_event_datetime
 from datetime import datetime
+
+
+logger = logging.getLogger(__name__)
 
 
 class ToolExecutor:
@@ -1201,6 +1205,12 @@ class ToolExecutor:
                     "exception_type": type(e).__name__
                 }
             
+            # Handle skip_step callable
+            if callable(step_result):
+                step_result()
+                logger.debug(f"Skipping step due to sanitized action: {step}")
+                continue
+            
             # Check for errors
             if step_result is None:
                 # Step returned None (not found, etc.)
@@ -1420,6 +1430,9 @@ class ToolExecutor:
             
             # Not found
             return None
+        
+        elif action == "skip_step":
+            return lambda: None
         
         elif action == "retrieve_transcript":
             # Requires calendar_event or meeting_id
