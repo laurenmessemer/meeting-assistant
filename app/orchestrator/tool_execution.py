@@ -79,6 +79,61 @@ class ToolExecutor:
         target_date = prepared_data.get("target_date")
         selected_meeting_number = prepared_data.get("selected_meeting_number")
         
+        # VALIDATION C3: Validate client_name exists in database
+        if client_name is not None:
+            # Validate client_name is a string
+            if not isinstance(client_name, str):
+                return {
+                    "tool_name": "summarization",
+                    "error": "Client name must be a string"
+                }
+            
+            # Normalize: strip whitespace
+            client_name = client_name.strip()
+            
+            # Validate client_name is not empty or whitespace-only
+            if not client_name:
+                return {
+                    "tool_name": "summarization",
+                    "error": f"Client '{client_name}' does not exist in database"
+                }
+            
+            # Search for client by name (case-insensitive)
+            matching_clients = self.memory.search_clients_by_name(client_name, user_id)
+            
+            # Check if any client name matches exactly (case-insensitive)
+            found_client = None
+            for client in matching_clients:
+                if client.name.strip().lower() == client_name.lower():
+                    found_client = client
+                    break
+            
+            # If no exact match found, client does not exist
+            if found_client is None:
+                return {
+                    "tool_name": "summarization",
+                    "error": f"Client '{client_name}' does not exist in database"
+                }
+            
+            # If both client_name and client_id are provided, validate consistency
+            if client_id is not None:
+                # Validate client_id is integer
+                if not isinstance(client_id, int):
+                    try:
+                        client_id = int(client_id)
+                    except (ValueError, TypeError):
+                        return {
+                            "tool_name": "summarization",
+                            "error": "Invalid client_id format"
+                        }
+                
+                # Check if client_name and client_id refer to the same client
+                if found_client.id != client_id:
+                    return {
+                        "tool_name": "summarization",
+                        "error": "Client name and client_id refer to different clients"
+                    }
+        
         print(f"   EXTRACTED: meeting_id={meeting_id}, calendar_event_id={calendar_event_id}")
         print(f"   EXTRACTED: client_name='{client_name}', target_date={target_date}")
         print(f"   EXTRACTED: selected_meeting_number={selected_meeting_number}")
