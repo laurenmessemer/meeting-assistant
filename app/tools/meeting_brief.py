@@ -1,10 +1,8 @@
 """Meeting brief tool for pre-meeting preparation."""
 
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional
 from app.llm.gemini_client import GeminiClient
 from app.llm.prompts import SUMMARIZATION_TOOL_PROMPT
-from app.tools.memory_processing import synthesize_memory, get_relevant_past_summaries
-from app.tools.delta_processing import compute_summary_deltas, build_delta_section
 
 
 class MeetingBriefTool:
@@ -21,7 +19,8 @@ class MeetingBriefTool:
         attendees: Optional[str] = None,
         previous_meeting_summary: Optional[str] = None,
         client_context: Optional[str] = None,
-        past_context: Optional[List[Dict[str, Any]]] = None
+        memory_context_section: Optional[str] = "",
+        delta_context_section: Optional[str] = ""
     ) -> Dict[str, Any]:
         """
         Generate a meeting brief.
@@ -33,54 +32,12 @@ class MeetingBriefTool:
             attendees: Comma-separated list of attendees
             previous_meeting_summary: Optional summary of previous meeting for context
             client_context: Optional client context/information
-            past_context: Optional list of past meeting memories for context
+            memory_context_section: Optional pre-formatted memory context section
+            delta_context_section: Optional pre-formatted delta context section
         
         Returns:
             Dictionary with brief content
         """
-        # Synthesize memory insights if past_context provided
-        insights = {
-            "communication_style": "",
-            "client_history": "",
-            "recurring_topics": "",
-            "open_loops": "",
-            "preferences": ""
-        }
-        if past_context:
-            try:
-                insights = await synthesize_memory(past_context, self.llm)
-            except Exception:
-                # Fail gracefully - continue without memory insights
-                pass
-        
-        # Build memory context section if insights exist
-        memory_context_section = ""
-        if any(insights.values()):  # Only include if at least one field has content
-            memory_context_section = f"""
-Context From Prior Meetings:
-- Communication style: {insights['communication_style']}
-- Client history: {insights['client_history']}
-- Recurring themes: {insights['recurring_topics']}
-- Open loops: {insights['open_loops']}
-- User preferences: {insights['preferences']}
-"""
-            # Enforce 1200 character limit on memory context section
-            if len(memory_context_section) > 1200:
-                memory_context_section = memory_context_section[:1200] + "..."
-        
-        # Get previous summaries and compute deltas if previous_meeting_summary exists
-        delta_context_section = ""
-        if previous_meeting_summary and past_context:
-            previous_summaries = get_relevant_past_summaries(past_context)
-            if previous_summaries:
-                try:
-                    # Compare current previous_meeting_summary against older summaries
-                    deltas = await compute_summary_deltas(previous_meeting_summary, previous_summaries, self.llm)
-                    delta_context_section = build_delta_section(deltas)
-                except Exception:
-                    # Fail gracefully - continue without delta section
-                    pass
-        
         # Build prompt for meeting brief
         context_parts = []
         

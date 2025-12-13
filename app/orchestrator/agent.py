@@ -13,6 +13,8 @@ from app.tools.followup import FollowUpTool
 from app.orchestrator.intent_recognition import IntentRecognizer
 from app.orchestrator.workflow_planning import WorkflowPlanner
 from app.orchestrator.memory_retrieval import MemoryRetriever
+from app.orchestrator.memory_synthesis_service import MemorySynthesisService
+from app.orchestrator.memory_formatting import format_memory_context
 from app.orchestrator.data_preparation import DataPreparator
 from app.orchestrator.integration_data_fetching import IntegrationDataFetcher
 from app.orchestrator.tool_execution import ToolExecutor
@@ -39,6 +41,7 @@ class AgentOrchestrator:
         self.intent_recognizer = IntentRecognizer(self.llm)
         self.workflow_planner = WorkflowPlanner(self.llm)
         self.memory_retriever = MemoryRetriever(self.memory)
+        self.memory_synthesis_service = MemorySynthesisService()
         self.data_preparator = DataPreparator()
         self.integration_data_fetcher = IntegrationDataFetcher(self.db, self.memory)
         self.tool_executor = ToolExecutor(
@@ -191,6 +194,43 @@ class AgentOrchestrator:
                 context = await self.memory_retriever.retrieve(user_id, client_id, intent, extracted_info)
                 # Store original message in context for last meeting auto-resolution
                 context["message"] = message
+                
+                # Synthesize memory insights once per request
+                try:
+                    user_memories = context.get("user_memories", [])
+                    past_context = user_memories[:5] if user_memories else None
+                    if past_context:
+                        memory_insights = await self.memory_synthesis_service.synthesize(past_context, self.llm)
+                        context["memory_insights"] = memory_insights
+                    else:
+                        # No memories available, set empty insights
+                        context["memory_insights"] = {
+                            "communication_style": "",
+                            "client_history": "",
+                            "recurring_topics": "",
+                            "open_loops": "",
+                            "preferences": ""
+                        }
+                except Exception as e:
+                    # Fail gracefully - continue without memory insights
+                    self.logger.warning(
+                        "Memory synthesis failed (non-critical)",
+                        correlation_id=correlation_id,
+                        step="memory_synthesis",
+                        error=str(e),
+                        error_type=type(e).__name__
+                    )
+                    context["memory_insights"] = {
+                        "communication_style": "",
+                        "client_history": "",
+                        "recurring_topics": "",
+                        "open_loops": "",
+                        "preferences": ""
+                    }
+                
+                # Format memory context section for use in prompts
+                context["memory_context_section"] = format_memory_context(context.get("memory_insights", {}))
+                
                 step_duration = (datetime.utcnow() - step_start).total_seconds() * 1000
                 
                 self.logger.info(
@@ -204,7 +244,8 @@ class AgentOrchestrator:
                 if debug:
                     intermediate_outputs["context"] = {
                         "user_memories_count": len(context.get("user_memories", [])),
-                        "has_client_context": "client_context" in context
+                        "has_client_context": "client_context" in context,
+                        "has_memory_insights": "memory_insights" in context
                     }
             except Exception as e:
                 self.logger.error(
@@ -216,6 +257,16 @@ class AgentOrchestrator:
                 )
                 # Failure-safe: use empty context
                 context = {}
+                # Set empty memory insights on failure
+                context["memory_insights"] = {
+                    "communication_style": "",
+                    "client_history": "",
+                    "recurring_topics": "",
+                    "open_loops": "",
+                    "preferences": ""
+                }
+                # Format empty memory context section
+                context["memory_context_section"] = format_memory_context(context.get("memory_insights", {}))
                 if debug:
                     intermediate_outputs["context"] = {}
                     intermediate_outputs["memory_error"] = str(e)

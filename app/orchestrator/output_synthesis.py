@@ -4,7 +4,6 @@ import logging
 from typing import Optional, Dict, Any
 from app.llm.gemini_client import GeminiClient
 from app.llm.prompts import OUTPUT_SYNTHESIS_PROMPT
-from app.tools.memory_processing import synthesize_memory
 
 
 logger = logging.getLogger(__name__)
@@ -24,43 +23,28 @@ class OutputSynthesizer:
         context: Dict[str, Any]
     ) -> str:
         """Synthesize final response from tool outputs."""
-        # Derive memory insights (optional, best-effort)
-        memory_insights = None
-        past_context = None
-        try:
-            if context and isinstance(context.get("user_memories"), list) and context.get("user_memories"):
-                past_context = context.get("user_memories")[:5]
-                memory_insights = await synthesize_memory(past_context, self.llm)
-                logger.debug(
-                    "Output synthesis memory insights computed",
-                    extra={
-                        "memory_available": True,
-                        "user_memories_used": len(past_context),
-                        "insights_keys": list(memory_insights.keys()) if isinstance(memory_insights, dict) else []
-                    }
-                )
-            else:
-                logger.debug(
-                    "Output synthesis memory insights skipped",
-                    extra={"memory_available": False}
-                )
-        except Exception:
-            memory_insights = None
+        # Read pre-formatted memory context section from context
+        memory_context_section = context.get("memory_context_section", "") if context else ""
+        if memory_context_section:
             logger.debug(
-                "Output synthesis memory insights failed; falling back to default behavior",
-                exc_info=True
+                "Output synthesis memory context section available from context",
+                extra={
+                    "memory_available": True,
+                    "memory_context_length": len(memory_context_section)
+                }
+            )
+        else:
+            logger.debug(
+                "Output synthesis memory context section not available in context",
+                extra={"memory_available": False}
             )
 
         if not tool_output:
             # General response without tool
-            if memory_insights:
+            if memory_context_section:
                 prompt = f"""User message: {message}
 
-User Context / Memory:
-- Communication style: {memory_insights.get('communication_style', '')}
-- Preferences: {memory_insights.get('preferences', '')}
-- Recurring topics: {memory_insights.get('recurring_topics', '')}
-- Open loops: {memory_insights.get('open_loops', '')}
+{memory_context_section}
 
 Provide a helpful response. If the user is asking about meetings, briefs, summaries, or follow-ups, 
 guide them on how to use the assistant."""
@@ -131,18 +115,14 @@ guide them on how to use the assistant."""
         
         if tool_name == "meeting_brief":
             brief = tool_result.get("brief", "")
-            if memory_insights:
+            if memory_context_section:
                 try:
                     prompt = f"""You are personalizing a meeting brief to match the user's communication style and preferences.
 
 Original Brief:
 {brief}
 
-User Context / Memory:
-- Communication style: {memory_insights.get('communication_style', '')}
-- Preferences: {memory_insights.get('preferences', '')}
-- Recurring topics: {memory_insights.get('recurring_topics', '')}
-- Open loops: {memory_insights.get('open_loops', '')}
+{memory_context_section}
 
 Rephrase the brief to align with the user's style and preferences while preserving all factual content.
 Do not add new facts. Return only the rephrased brief."""
@@ -227,18 +207,14 @@ Do not add new facts. Return only the rephrased brief."""
                 },
             )
             
-            if memory_insights:
+            if memory_context_section:
                 try:
                     prompt = f"""You are personalizing a meeting summary to match the user's communication style and preferences.
 
 Original Summary:
 {summary_text}
 
-User Context / Memory:
-- Communication style: {memory_insights.get('communication_style', '')}
-- Preferences: {memory_insights.get('preferences', '')}
-- Recurring topics: {memory_insights.get('recurring_topics', '')}
-- Open loops: {memory_insights.get('open_loops', '')}
+{memory_context_section}
 
 Rephrase the summary to align with the user's style and preferences while preserving all factual content.
 Do not add new facts. Return only the rephrased summary."""
@@ -261,18 +237,14 @@ Do not add new facts. Return only the rephrased summary."""
             email_body = tool_result.get("body", "")
             subject = tool_result.get("subject", "")
             
-            if memory_insights:
+            if memory_context_section:
                 try:
                     prompt = f"""You are personalizing a follow-up email body to match the user's communication style and preferences.
 
 Original Email Body:
 {email_body}
 
-User Context / Memory:
-- Communication style: {memory_insights.get('communication_style', '')}
-- Preferences: {memory_insights.get('preferences', '')}
-- Recurring topics: {memory_insights.get('recurring_topics', '')}
-- Open loops: {memory_insights.get('open_loops', '')}
+{memory_context_section}
 
 Rephrase the email body to align with the user's style and preferences while preserving all factual content and calls-to-action.
 Do not add new facts. Return only the rephrased body."""

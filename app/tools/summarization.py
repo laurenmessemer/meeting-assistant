@@ -1,10 +1,8 @@
 """Summarization tool for post-meeting analysis."""
 
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional
 from app.llm.gemini_client import GeminiClient
 from app.llm.prompts import SUMMARIZATION_TOOL_PROMPT
-from app.tools.memory_processing import synthesize_memory, get_relevant_past_summaries
-from app.tools.delta_processing import compute_summary_deltas, build_delta_section
 
 
 class SummarizationTool:
@@ -21,7 +19,7 @@ class SummarizationTool:
         recording_date: Optional[str] = None,
         attendees: Optional[str] = None,
         has_transcript: bool = True,
-        past_context: Optional[List[Dict[str, Any]]] = None,
+        memory_context_section: Optional[str] = "",
         meeting_id: Optional[int] = None,
         calendar_event_id: Optional[str] = None,
         user_id: Optional[int] = None
@@ -36,7 +34,7 @@ class SummarizationTool:
             recording_date: Zoom recording date for display
             attendees: Comma-separated list of attendee names
             has_transcript: Whether transcript is available (default: True)
-            past_context: Optional list of past meeting memories for context
+            memory_context_section: Optional pre-formatted memory context section
             meeting_id: Optional meeting ID for diagnostic logging
             calendar_event_id: Optional calendar event ID for diagnostic logging
             user_id: Optional user ID for diagnostic logging
@@ -74,51 +72,11 @@ class SummarizationTool:
         else:
             print(f"   [DIAGNOSTIC] No transcript available - using calendar-only information")
         
-        # Synthesize memory insights if past_context provided
-        insights = {
-            "communication_style": "",
-            "client_history": "",
-            "recurring_topics": "",
-            "open_loops": "",
-            "preferences": ""
-        }
-        if past_context:
-            try:
-                insights = await synthesize_memory(past_context, self.llm)
-            except Exception:
-                # Fail gracefully - continue without memory insights
-                pass
-        
-        # Build memory context section if insights exist
-        memory_context_section = ""
-        if any(insights.values()):  # Only include if at least one field has content
-            memory_context_section = f"""
-Context From Prior Meetings:
-- Communication style: {insights['communication_style']}
-- Client history: {insights['client_history']}
-- Recurring themes: {insights['recurring_topics']}
-- Open loops: {insights['open_loops']}
-- User preferences: {insights['preferences']}
-"""
-            # Enforce 1200 character limit on memory context section
-            if len(memory_context_section) > 1200:
-                memory_context_section = memory_context_section[:1200] + "..."
-        
-        # Get previous summaries for delta comparison (after summary generation)
-        previous_summaries = []
-        if past_context:
-            previous_summaries = get_relevant_past_summaries(past_context)
-        
-        # Build delta section from previous summaries (compare most recent two)
-        # Note: We can't compare current summary yet (doesn't exist), so we skip delta injection in prompt
-        # Deltas will be computed after summary generation if needed
-        delta_context_section = ""
-        
         # Generate structured summary using LLM
         if not has_transcript:
             # Generate summary without transcript - just calendar information
             prompt = f"""Create a meeting summary based on the available calendar information. Note that no Zoom recording is available for this meeting.
-{memory_context_section}{delta_context_section}
+{memory_context_section if memory_context_section else ""}
 
 Meeting Information:
 - Title: {title}
@@ -152,7 +110,7 @@ Format your response using the EXACT section headers shown above (with # and ## 
         else:
             # Generate summary with transcript
             prompt = f"""Analyze the following meeting transcript and create a comprehensive, well-structured summary.
-{memory_context_section}{delta_context_section}
+{memory_context_section if memory_context_section else ""}
 
 Meeting Information:
 - Title: {title}

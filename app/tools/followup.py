@@ -1,10 +1,8 @@
 """Follow-up email generation tool."""
 
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional
 from app.llm.gemini_client import GeminiClient
 from app.llm.prompts import SUMMARIZATION_TOOL_PROMPT
-from app.tools.memory_processing import synthesize_memory, get_relevant_past_summaries
-from app.tools.delta_processing import compute_summary_deltas, build_delta_section
 
 
 class FollowUpTool:
@@ -24,7 +22,8 @@ class FollowUpTool:
         attendees: Optional[str] = None,
         action_items: Optional[list] = None,
         decisions: Optional[list] = None,
-        past_context: Optional[List[Dict[str, Any]]] = None,
+        memory_context_section: Optional[str] = "",
+        delta_context_section: Optional[str] = "",
         meeting_id: Optional[int] = None,
         calendar_event_id: Optional[str] = None,
         meeting_source: Optional[str] = None
@@ -42,7 +41,8 @@ class FollowUpTool:
             attendees: Attendees list as formatted string
             action_items: List of action items from the meeting
             decisions: List of decisions made in the meeting (can be dicts with description/context)
-            past_context: Optional list of past meeting memories for context
+            memory_context_section: Optional pre-formatted memory context section
+            delta_context_section: Optional pre-formatted delta context section
             meeting_id: Optional meeting ID for diagnostic logging
             calendar_event_id: Optional calendar event ID for diagnostic logging
             meeting_source: Optional source indicator for diagnostic logging
@@ -62,50 +62,6 @@ class FollowUpTool:
         print(f"[FOLLOWUP DEBUG] has_meeting_summary={meeting_summary is not None} (length={len(meeting_summary) if meeting_summary else 0})")
         print(f"[FOLLOWUP DEBUG] has_transcript={transcript is not None} (length={len(transcript) if transcript else 0})")
         print(f"[FOLLOWUP DEBUG] decisions_count={len(decisions) if decisions else 0}")
-        print(f"[FOLLOWUP DEBUG] past_context_count={len(past_context) if past_context else 0}")
-        
-        # Synthesize memory insights if past_context provided
-        insights = {
-            "communication_style": "",
-            "client_history": "",
-            "recurring_topics": "",
-            "open_loops": "",
-            "preferences": ""
-        }
-        if past_context:
-            try:
-                insights = await synthesize_memory(past_context, self.llm)
-            except Exception:
-                # Fail gracefully - continue without memory insights
-                pass
-        
-        # Build memory context section if insights exist
-        memory_context_section = ""
-        if any(insights.values()):  # Only include if at least one field has content
-            memory_context_section = f"""
-Context From Prior Meetings:
-- Communication style: {insights['communication_style']}
-- Client history: {insights['client_history']}
-- Recurring themes: {insights['recurring_topics']}
-- Open loops: {insights['open_loops']}
-- User preferences: {insights['preferences']}
-"""
-            # Enforce 1200 character limit on memory context section
-            if len(memory_context_section) > 1200:
-                memory_context_section = memory_context_section[:1200] + "..."
-        
-        # Get previous summaries and compute deltas if meeting_summary exists
-        delta_context_section = ""
-        if meeting_summary and past_context:
-            previous_summaries = get_relevant_past_summaries(past_context)
-            if previous_summaries:
-                try:
-                    # Compare current meeting_summary against previous summaries
-                    deltas = await compute_summary_deltas(meeting_summary, previous_summaries, self.llm)
-                    delta_context_section = build_delta_section(deltas)
-                except Exception:
-                    # Fail gracefully - continue without delta section
-                    pass
         
         # Build structured context for email generation
         meeting_info_parts = []
@@ -160,7 +116,7 @@ Context From Prior Meetings:
         
         # Build comprehensive prompt similar to summarization style
         prompt = f"""Generate a professional follow-up email based on the meeting information below.
-{memory_context_section}{delta_context_section}
+{memory_context_section if memory_context_section else ""}{delta_context_section if delta_context_section else ""}
 
 Meeting Information:
 {chr(10).join(meeting_info_parts) if meeting_info_parts else "No meeting information provided."}

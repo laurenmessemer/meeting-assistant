@@ -9,6 +9,7 @@ from app.tools.meeting_brief import MeetingBriefTool
 from app.tools.followup import FollowUpTool
 from app.orchestrator.integration_data_fetching import IntegrationDataFetcher
 from app.orchestrator.meeting_finder import MeetingFinder
+from app.orchestrator.delta_processing_service import compute_delta_context
 from app.memory.schemas import MeetingUpdate, DecisionCreate
 from app.utils.date_utils import format_datetime_display
 from app.utils.date_utils import extract_event_datetime
@@ -894,10 +895,8 @@ class ToolExecutor:
         workflow: Optional[Dict[str, Any]] = None
     ) -> Optional[Dict[str, Any]]:
         """Execute the appropriate tool based on intent with prepared data."""
-        # Extract memory from context (optional, safe if missing)
-        # context may be None, user_memories may be empty
-        user_memories = context.get("user_memories", []) if context else []
-        past_context = user_memories[:5] if user_memories else None  # Max 5 items
+        # Get pre-formatted memory context section from context
+        memory_context_section = context.get("memory_context_section", "") if context else ""
         
         # Step 2: Workflow plumbing - backward compatibility guard
         # If no workflow or empty workflow, proceed with legacy routing logic unchanged.
@@ -1925,9 +1924,8 @@ class ToolExecutor:
         context: Dict[str, Any] = None
     ) -> Dict[str, Any]:
         """Execute meeting brief tool."""
-        # Extract memory from context (optional, safe if missing)
-        user_memories = context.get("user_memories", []) if context else []
-        past_context = user_memories[:5] if user_memories else None  # Max 5 items
+        # Get pre-formatted memory context section from context
+        memory_context_section = context.get("memory_context_section", "") if context else ""
         
         structured_data = integration_data.get("structured_data", {})
         
@@ -1935,10 +1933,14 @@ class ToolExecutor:
         if not structured_data.get("client_name"):
             return None
         
+        # Get pre-formatted delta context section from context
+        delta_context_section = context.get("delta_context_section", "") if context else ""
+        
         # Call tool with structured input
         result = await self.meeting_brief_tool.generate_brief(
             **structured_data,
-            past_context=past_context
+            memory_context_section=memory_context_section,
+            delta_context_section=delta_context_section
         )
         
         return {
@@ -1958,9 +1960,8 @@ class ToolExecutor:
         if integration_data is None:
             integration_data = {}
         
-        # Extract memory from context (optional, safe if missing)
-        user_memories = context.get("user_memories", []) if context else []
-        past_context = user_memories[:5] if user_memories else None  # Max 5 items
+        # Get pre-formatted memory context section from context
+        memory_context_section = context.get("memory_context_section", "") if context else ""
         
         # Check if we need user selection
         if integration_data.get("meeting_options"):
@@ -2034,7 +2035,7 @@ class ToolExecutor:
         
         result = await self.summarization_tool.summarize_meeting(
             **structured_data,
-            past_context=past_context,
+            memory_context_section=memory_context_section,
             meeting_id=diagnostic_meeting_id,
             calendar_event_id=diagnostic_calendar_event_id,
             user_id=user_id
@@ -2108,6 +2109,31 @@ class ToolExecutor:
                     extra_data={"calendar_event_id": calendar_event_id}
                 )
         
+        # Compute delta context section after summary generation
+        if result.get("summary") and context:
+            try:
+                # Get past context from user_memories
+                user_memories = context.get("user_memories", [])
+                past_context = user_memories[:5] if user_memories else []
+                
+                # Compute delta using LLM from summarization tool
+                delta_context_section = await compute_delta_context(
+                    current_summary=result.get("summary"),
+                    past_context=past_context,
+                    llm=self.summarization_tool.llm
+                )
+                
+                # Store in context for use by other tools
+                context["delta_context_section"] = delta_context_section
+            except Exception as e:
+                # Fail gracefully - continue without delta context
+                logger.warning(f"Delta computation failed (non-critical): {str(e)}")
+                context["delta_context_section"] = ""
+        else:
+            # No summary or no context - set empty delta
+            if context:
+                context["delta_context_section"] = ""
+        
         return {
             "tool_name": "summarization",
             "result": result
@@ -2119,9 +2145,8 @@ class ToolExecutor:
         context: Dict[str, Any] = None
     ) -> Dict[str, Any]:
         """Execute follow-up tool."""
-        # Extract memory from context (optional, safe if missing)
-        user_memories = context.get("user_memories", []) if context else []
-        past_context = user_memories[:5] if user_memories else None  # Max 5 items
+        # Get pre-formatted memory context section from context
+        memory_context_section = context.get("memory_context_section", "") if context else ""
         
         structured_data = integration_data.get("structured_data", {})
         
@@ -2175,10 +2200,14 @@ class ToolExecutor:
         diagnostic_calendar_event_id = integration_data.get("calendar_event", {}).get("id") if integration_data.get("calendar_event") else None
         diagnostic_meeting_source = integration_data.get("meeting_source", "unknown")
         
+        # Get pre-formatted delta context section from context
+        delta_context_section = context.get("delta_context_section", "") if context else ""
+        
         # Call tool with structured input
         result = await self.followup_tool.generate_followup(
             **structured_data,
-            past_context=past_context,
+            memory_context_section=memory_context_section,
+            delta_context_section=delta_context_section,
             meeting_id=diagnostic_meeting_id,
             calendar_event_id=diagnostic_calendar_event_id,
             meeting_source=diagnostic_meeting_source

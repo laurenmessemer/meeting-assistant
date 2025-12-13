@@ -5,7 +5,6 @@ import logging
 from typing import Dict, Any, Optional
 from app.llm.gemini_client import GeminiClient
 from app.llm.prompts import WORKFLOW_PLANNING_PROMPT
-from app.tools.memory_processing import synthesize_memory
 
 
 logger = logging.getLogger(__name__)
@@ -42,42 +41,29 @@ class WorkflowPlanner:
     ) -> Dict[str, Any]:
         """Plan workflow steps based on intent."""
         context_info = f"User ID: {user_id}, Client ID: {client_id}"
-        memory_insights = None
-        if context and isinstance(context.get("user_memories"), list) and context.get("user_memories"):
-            past_context = context.get("user_memories")[:5]
-            try:
-                memory_insights = await synthesize_memory(past_context, self.llm)
-                logger.debug(
-                    "WorkflowPlanner: memory insights computed",
-                    extra={
-                        "user_memories_used": len(past_context),
-                        "insights_keys": list(memory_insights.keys()) if isinstance(memory_insights, dict) else [],
-                    },
-                )
-            except Exception:
-                memory_insights = None
-                logger.debug(
-                    "WorkflowPlanner: memory insights unavailable; proceeding without memory",
-                    exc_info=True,
-                )
+        # Read pre-formatted memory context section from context
+        memory_context_section = context.get("memory_context_section", "") if context else ""
+        if memory_context_section:
+            logger.debug(
+                "WorkflowPlanner: memory context section available from context",
+                extra={
+                    "memory_context_length": len(memory_context_section),
+                },
+            )
         else:
-            logger.debug("WorkflowPlanner: no memory context provided; proceeding without memory")
+            logger.debug("WorkflowPlanner: no memory context section in context; proceeding without memory")
         
         prompt = f"""Intent: {intent}
 User Message: {message}
 Context: {context_info}
 
 Plan the workflow and respond in JSON format."""
-        if isinstance(memory_insights, dict):
+        if memory_context_section:
             prompt = (
                 f"""{prompt}
 
 ---
-User Context / Memory (optional):
-- Communication style: {memory_insights.get('communication_style', '')}
-- Preferences: {memory_insights.get('preferences', '')}
-- Recurring topics: {memory_insights.get('recurring_topics', '')}
-- Open loops: {memory_insights.get('open_loops', '')}
+{memory_context_section}
 """
             )
             logger.debug("WorkflowPlanner: applying memory-aware planning context")
