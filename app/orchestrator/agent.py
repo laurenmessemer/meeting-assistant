@@ -189,6 +189,8 @@ class AgentOrchestrator:
             
             try:
                 context = await self.memory_retriever.retrieve(user_id, client_id, intent, extracted_info)
+                # Store original message in context for last meeting auto-resolution
+                context["message"] = message
                 step_duration = (datetime.utcnow() - step_start).total_seconds() * 1000
                 
                 self.logger.info(

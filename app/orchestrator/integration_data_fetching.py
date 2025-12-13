@@ -74,6 +74,11 @@ class IntegrationDataFetcher:
         
         Returns structured data for summarization tool.
         """
+        print(f"\n[DIAGNOSTIC] IntegrationDataFetcher.process_calendar_event_for_summarization() called")
+        print(f"   calendar_event['id']: {calendar_event.get('id', 'N/A')}")
+        print(f"   calendar_event['summary']: {calendar_event.get('summary', 'N/A')}")
+        print(f"   user_id: {user_id}, client_id: {client_id}")
+        
         event_title = calendar_event.get('summary', 'Untitled')
         event_id = calendar_event.get('id', 'Unknown')
         
@@ -104,6 +109,8 @@ class IntegrationDataFetcher:
         
         # If no Zoom ID, return calendar-only data
         if not zoom_meeting_id:
+            print(f"   [DIAGNOSTIC] ⚠️ No Zoom meeting ID found in calendar event")
+            print(f"   [DIAGNOSTIC] Returning calendar-only data (no meeting_id will be created)")
             return {
                 "meeting_title": event_title,
                 "meeting_date": formatted_date,
@@ -212,8 +219,12 @@ class IntegrationDataFetcher:
             
             db_meeting = self.memory.create_meeting(meeting_data)
             meeting_id = db_meeting.id
+            print(f"   [DIAGNOSTIC] ✅ Created meeting in database: meeting_id={meeting_id}")
+            print(f"   [DIAGNOSTIC] Meeting has transcript: {has_transcript} (transcript length: {len(transcript) if transcript else 0})")
+        else:
+            print(f"   [DIAGNOSTIC] ⚠️ No zoom_meeting_id, skipping meeting creation")
         
-        return {
+        result = {
             "meeting_title": event_title,
             "meeting_date": formatted_date,
             "recording_date": formatted_date,  # Use event date as recording date
@@ -222,6 +233,9 @@ class IntegrationDataFetcher:
             "has_transcript": has_transcript,
             "meeting_id": meeting_id
         }
+        
+        print(f"   [DIAGNOSTIC] Returning result: meeting_id={result['meeting_id']}, has_transcript={result['has_transcript']}")
+        return result
     
     def get_calendar_event_details(
         self,

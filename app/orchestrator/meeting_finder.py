@@ -144,7 +144,14 @@ class MeetingFinder:
         """Filter and sort past meetings."""
         from datetime import datetime, timezone
         
+        print(f"         [DIAGNOSTIC] _filter_past_meetings: Filtering {len(meetings)} meetings")
+        print(f"         [DIAGNOSTIC] now_aware: {now_aware}")
+        
         past_meetings = []
+        filtered_out_count = 0
+        filtered_out_no_time = 0
+        filtered_out_future = 0
+        
         for m in meetings:
             if m.scheduled_time:
                 meeting_time = m.scheduled_time
@@ -152,6 +159,19 @@ class MeetingFinder:
                     meeting_time = meeting_time.replace(tzinfo=timezone.utc)
                 if meeting_time < now_aware:
                     past_meetings.append(m)
+                    # DIAGNOSTIC: Log transcript/recording status for past meetings
+                    transcript_status = "has transcript" if m.transcript else "NO transcript"
+                    recording_status = "has recording" if getattr(m, 'recording_url', None) else "NO recording"
+                    print(f"         [DIAGNOSTIC]   ✅ PAST: meeting_id={m.id}, title='{getattr(m, 'title', 'N/A')}', scheduled={meeting_time}, {transcript_status}, {recording_status}")
+                else:
+                    filtered_out_future += 1
+                    print(f"         [DIAGNOSTIC]   ❌ FUTURE: meeting_id={m.id}, scheduled={meeting_time} >= now_aware")
+            else:
+                filtered_out_no_time += 1
+                print(f"         [DIAGNOSTIC]   ❌ NO TIME: meeting_id={m.id}, scheduled_time=None")
+        
+        print(f"         [DIAGNOSTIC] Filtered results: {len(past_meetings)} past meetings, {filtered_out_future} future, {filtered_out_no_time} no time")
+        print(f"         [DIAGNOSTIC] NOTE: Meetings with transcript=NULL or recording_url=NULL are NOT filtered out - they remain in past_meetings list")
         
         if past_meetings:
             def get_sort_key(m):
@@ -163,6 +183,9 @@ class MeetingFinder:
                 return dt
             
             past_meetings.sort(key=get_sort_key, reverse=True)
+            print(f"         [DIAGNOSTIC] Sorted past_meetings (newest first):")
+            for i, m in enumerate(past_meetings[:5], 1):
+                print(f"         [DIAGNOSTIC]   {i}. meeting_id={m.id}, title='{getattr(m, 'title', 'N/A')}', scheduled={m.scheduled_time}")
         
         return past_meetings
     
@@ -294,6 +317,7 @@ class MeetingFinder:
                         print(f"      summary: '{final_event.get('summary', 'N/A')}'")
                         print(f"      id: '{final_event.get('id', 'N/A')}'")
                         print(f"      start: {final_event.get('start', {}).get('dateTime', 'N/A')}")
+                        print(f"   [DIAGNOSTIC] NOTE: This calendar_event is returned as-is. It will be converted to meeting_id later in process_calendar_event_for_summarization()")
                         return final_event, None
                     elif len(matching_events) > 1:
                         print(f"         📋 Multiple matches found, returning options for user selection")
@@ -371,10 +395,17 @@ class MeetingFinder:
                     
                     # Return based on number of matches
                     if len(matching_events) == 1:
+                        final_event = matching_events[0]
                         print(f"         ✅ Single match found, returning calendar event")
-                        return matching_events[0], None
+                        print(f"   [DIAGNOSTIC] Final chosen event (single match, no target date):")
+                        print(f"      summary: '{final_event.get('summary', 'N/A')}'")
+                        print(f"      id: '{final_event.get('id', 'N/A')}'")
+                        print(f"      start: {final_event.get('start', {}).get('dateTime', 'N/A')}")
+                        print(f"   [DIAGNOSTIC] NOTE: This is the most recent matching calendar event. It will be converted to meeting_id later in process_calendar_event_for_summarization()")
+                        return final_event, None
                     elif len(matching_events) > 1:
                         print(f"         📋 Multiple matches found, returning options for user selection")
+                        print(f"   [DIAGNOSTIC] Multiple matches - showing {len(matching_events)} options to user")
                         return None, self._create_meeting_options(matching_events, client_name, user_id)
                     else:
                         print(f"         ❌ No matching events found")
@@ -431,6 +462,11 @@ class MeetingFinder:
                             print(f"         ✅ Auto-selected most recent event: '{selected_event.get('summary', 'Untitled')}'")
                             if len(past_only_events) > 1:
                                 print(f"         ℹ️ Found {len(past_only_events)} past events, using the most recent")
+                            print(f"   [DIAGNOSTIC] Auto-selected event (no client_name):")
+                            print(f"      summary: '{selected_event.get('summary', 'N/A')}'")
+                            print(f"      id: '{selected_event.get('id', 'N/A')}'")
+                            print(f"      start: {selected_event.get('start', {}).get('dateTime', 'N/A')}")
+                            print(f"   [DIAGNOSTIC] NOTE: This calendar_event is returned as-is. It will be converted to meeting_id later in process_calendar_event_for_summarization()")
                             return selected_event, None
                         else:
                             print(f"         ❌ No past events found")

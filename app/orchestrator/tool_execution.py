@@ -52,8 +52,15 @@ class ToolExecutor:
         integration_data = {}
         
         if intent == "summarization":
+            # Pass intent and message for last meeting auto-resolution
+            # Try to get message from context or prepared_data
+            message = None
+            if context:
+                message = context.get("message") or context.get("original_message")
+            if not message:
+                message = prepared_data.get("message")
             integration_data = await self._prepare_summarization_data(
-                prepared_data, user_id, client_id
+                prepared_data, user_id, client_id, intent=intent, message=message
             )
         elif intent == "meeting_brief":
             integration_data = await self._prepare_meeting_brief_data(
@@ -70,7 +77,9 @@ class ToolExecutor:
         self,
         prepared_data: Dict[str, Any],
         user_id: Optional[int],
-        client_id: Optional[int]
+        client_id: Optional[int],
+        intent: Optional[str] = None,
+        message: Optional[str] = None
     ) -> Dict[str, Any]:
         """Prepare data for summarization tool."""
         print(f"\n[DEBUG TOOL] ToolExecutor._prepare_summarization_data() called")
@@ -354,6 +363,20 @@ class ToolExecutor:
             )
             print(f"   RESULT: find_meeting_in_calendar returned calendar_event={calendar_event is not None}, meeting_options={meeting_options is not None}")
             
+            # Auto-resolution: Attempt to auto-select "last meeting" when conditions are met
+            if meeting_options and isinstance(meeting_options, list) and len(meeting_options) > 1:
+                from app.orchestrator.last_meeting_resolver import resolve_last_meeting
+                resolved_event = resolve_last_meeting(
+                    message=message or "",
+                    intent=intent or "",
+                    target_date=target_date,
+                    meeting_options=meeting_options
+                )
+                if resolved_event:
+                    print(f"   [AUTO-RESOLUTION] Auto-selected most recent meeting from {len(meeting_options)} options")
+                    calendar_event = resolved_event
+                    meeting_options = None  # Clear options since we auto-selected
+            
             # VALIDATION A3.3: Validate that multiple events don't match (ambiguous selection)
             if meeting_options and isinstance(meeting_options, list) and len(meeting_options) > 1:
                 return {
@@ -403,11 +426,22 @@ class ToolExecutor:
                         }
                 
                 print(f"   BRANCH: calendar_event found, processing...")
+                print(f"   [DIAGNOSTIC] Calendar event details:")
+                print(f"      calendar_event['id']: {calendar_event.get('id') if isinstance(calendar_event, dict) else 'N/A'}")
+                print(f"      calendar_event['summary']: {calendar_event.get('summary') if isinstance(calendar_event, dict) else 'N/A'}")
+                
                 event_data = await self.integration_data_fetcher.process_calendar_event_for_summarization(
                     calendar_event, user_id, client_id
                 )
+                
+                print(f"   [DIAGNOSTIC] process_calendar_event_for_summarization returned:")
+                print(f"      meeting_id: {event_data.get('meeting_id')}")
+                print(f"      has_transcript: {event_data.get('has_transcript', False)}")
+                print(f"      error: {event_data.get('error', 'None')}")
+                
                 if event_data.get("error"):
                     print(f"   ❌ ERROR processing calendar event: {event_data.get('error')}")
+                    print(f"   [DIAGNOSTIC] ❌ ERROR from process_calendar_event_for_summarization: {event_data.get('error')}")
                     result["error"] = event_data["error"]
                     
                     # DIAGNOSTIC: Log error case
@@ -423,6 +457,7 @@ class ToolExecutor:
                     return result
                 
                 print(f"   ✅ Calendar event processed, meeting_id={event_data.get('meeting_id')}")
+                print(f"   [DIAGNOSTIC] ✅ Successfully processed calendar event -> meeting_id={event_data.get('meeting_id')}")
                 result["calendar_event"] = calendar_event
                 result["meeting_id"] = event_data.get("meeting_id")
                 result["structured_data"] = {
@@ -1439,11 +1474,24 @@ class ToolExecutor:
             calendar_event = execution_context.get("calendar_event")
             meeting_id = execution_context.get("meeting_id")
             
+            # DIAGNOSTIC: Log the exact condition that triggers the error
+            print(f"\n[DIAGNOSTIC] retrieve_transcript action check:")
+            print(f"   calendar_event: {calendar_event is not None} ({'dict' if isinstance(calendar_event, dict) else type(calendar_event).__name__ if calendar_event else 'None'})")
+            print(f"   meeting_id: {meeting_id}")
+            print(f"   execution_context keys: {list(execution_context.keys())}")
+            if calendar_event:
+                print(f"   calendar_event keys: {list(calendar_event.keys()) if isinstance(calendar_event, dict) else 'N/A'}")
+                print(f"   calendar_event['id']: {calendar_event.get('id') if isinstance(calendar_event, dict) else 'N/A'}")
+            
             if not calendar_event and not meeting_id:
+                print(f"   [DIAGNOSTIC] ❌ ERROR TRIGGERED: Both calendar_event and meeting_id are None/Missing")
+                print(f"   [DIAGNOSTIC] This is the exact condition that causes: 'Cannot retrieve transcript: no calendar_event or meeting_id'")
                 return {
                     "tool_name": "integration_fetcher",
                     "error": "Cannot retrieve transcript: no calendar_event or meeting_id"
                 }
+            else:
+                print(f"   [DIAGNOSTIC] ✅ Condition passed: {'calendar_event' if calendar_event else ''}{' + ' if calendar_event and meeting_id else ''}{'meeting_id' if meeting_id else ''} is available")
             
             # Extract zoom_meeting_id from calendar_event
             if calendar_event:
